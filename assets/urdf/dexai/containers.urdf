@@ -1,0 +1,448 @@
+
+  <!-- contaiers -->
+  <link name="hotel_pan_third_6in_000">
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="package://salad_bar_description/urdf/meshes/visual/hotel_pan_third_6in.STL"/>
+      </geometry>
+    </visual>
+  </link>
+  <joint name="front_pans_center_to_hotel_pan_third_6in_000" type="fixed">
+    <origin rpy="0 0 -1.5707963267948966" xyz="0.17633333333333334 0.325 -0.175"/>
+    <parent link="front_pans_center"/>
+    <child link="hotel_pan_third_6in_000"/>
+  </joint>
+  <link name="hotel_pan_third_6in_010">
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="package://salad_bar_description/urdf/meshes/visual/hotel_pan_third_6in.STL"/>
+      </geometry>
+      <material name="">
+        <color rgba="0 1 1 1"/>
+      </material>
+    </visual>
+    <!-- simpler, box collision geo when we don't care about serving from this pan -->
+    <!-- TODO: bounding box for racked utensil -->
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0.0834"/>
+      <geometry>
+        <box size="0.35 0.19 0.17"/>
+      </geometry>
+    </collision>
+    <!-- accurate collision geo for pan -->
+    <!-- TODO: fix collision geo, this is just copied over from hotel_pan_sixth_6in -->
+  </link>
+  <joint name="front_pans_center_to_hotel_pan_third_6in_010" type="fixed">
+    <origin rpy="0 0 -1.5707963267948966" xyz="0 0.325 -0.175"/>
+    <parent link="front_pans_center"/>
+    <child link="hotel_pan_third_6in_010"/>
+  </joint>
+  <link name="hotel_pan_third_6in_020">
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="package://salad_bar_description/urdf/meshes/visual/hotel_pan_third_6in.STL"/>
+      </geometry>
+      <material name="">
+        <color rgba="0 1 1 1"/>
+      </material>
+    </visual>
+    <!-- simpler, box collision geo when we don't care about serving from this pan -->
+    <!-- TODO: bounding box for racked utensil -->
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0.0834"/>
+      <geometry>
+        <box size="0.35 0.19 0.17"/>
+      </geometry>
+    </collision>
+    <!-- accurate collision geo for pan -->
+    <!-- TODO: fix collision geo, this is just copied over from hotel_pan_sixth_6in -->
+  </link>
+  <joint name="front_pans_center_to_hotel_pan_third_6in_020" type="fixed">
+    <origin rpy="0 0 -1.5707963267948966" xyz="-0.17633333333333334 0.325 -0.175"/>
+    <parent link="front_pans_center"/>
+    <child link="hotel_pan_third_6in_020"/>
+  </joint>
+  <link name="hotel_pan_full_6in_001">
+    <visual>
+      <origin rpy="0 0 1.5707963267948966" xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="package://salad_bar_description/urdf/meshes/visual/hotel_pan_full_6in.STL"/>
+      </geometry>
+      <material name="">
+        <color rgba="0 1 1 1"/>
+      </material>
+    </visual>
+    <!-- simpler, box collision geo when we don't care about serving from this pan -->
+    <!-- TODO: bounding box for racked utensil -->
+    <collision>
+      <origin rpy="0 0 -1.5707963267948966" xyz="0 0 0.0834"/>
+      <geometry>
+        <box size="0.53 0.34 0.17"/>
+      </geometry>
+    </collision>
+    <!-- accurate collision geo for pan -->
+    <!-- TODO: fix collision geo, this is just copied over from hotel_pan_sixth_6in -->
+    <!-- Should be accuate now, measured manually and cross referenced to online vendors -->
+  </link>
+  <joint name="front_pans_center_to_hotel_pan_full_6in_001" type="fixed">
+    <origin rpy="0 0 -1.5707963267948966" xyz="0 0.0 -0.175"/>
+    <parent link="front_pans_center"/>
+    <child link="hotel_pan_full_6in_001"/>
+  </joint>
+  <link name="hotel_pan_sixth_6in_004">
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="package://salad_bar_description/urdf/meshes/visual/hotel_pan_sixth_6in.STL"/>
+      </geometry>
+      <material name="">
+        <color rgba="0 1 1 1"/>
+      </material>
+    </visual>
+    <!-- simpler, box collision geo when we don't care about serving from this pan -->
+    <!-- TODO: bounding box for racked utensil -->
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0.0834"/>
+      <geometry>
+        <box size="0.175 0.19 0.17"/>
+      </geometry>
+    </collision>
+    <!-- accurate collision geo for pan -->
+  </link>
+  <joint name="front_pans_center_to_hotel_pan_sixth_6in_004" type="fixed">
+    <origin rpy="0 0 -1.5707963267948966" xyz="0.17633333333333334  -0.24375000000000002 -0.175"/>
+    <parent link="front_pans_center"/>
+    <child link="hotel_pan_sixth_6in_004"/>
+  </joint>
+  <link name="hotel_pan_sixth_6in_014">
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="package://salad_bar_description/urdf/meshes/visual/hotel_pan_sixth_6in.STL"/>
+      </geometry>
+      <material name="">
+        <color rgba="0 1 1 1"/>
+      </material>
+    </visual>
+    <!-- simpler, box collision geo when we don't care about serving from this pan -->
+    <!-- TODO: bounding box for racked utensil -->
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0.0834"/>
+      <geometry>
+        <box size="0.175 0.19 0.17"/>
+      </geometry>
+    </collision>
+    <!-- accurate collision geo for pan -->
+  </link>
+  <joint name="front_pans_center_to_hotel_pan_sixth_6in_014" type="fixed">
+    <origin rpy="0 0 -1.5707963267948966" xyz="0  -0.24375000000000002 -0.175"/>
+    <parent link="front_pans_center"/>
+    <child link="hotel_pan_sixth_6in_014"/>
+  </joint>
+  <link name="hotel_pan_sixth_6in_024">
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="package://salad_bar_description/urdf/meshes/visual/hotel_pan_sixth_6in.STL"/>
+      </geometry>
+      <material name="">
+        <color rgba="0 1 1 1"/>
+      </material>
+    </visual>
+    <!-- simpler, box collision geo when we don't care about serving from this pan -->
+    <!-- TODO: bounding box for racked utensil -->
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0.0834"/>
+      <geometry>
+        <box size="0.175 0.19 0.17"/>
+      </geometry>
+    </collision>
+    <!-- accurate collision geo for pan -->
+  </link>
+  <joint name="front_pans_center_to_hotel_pan_sixth_6in_024" type="fixed">
+    <origin rpy="0 0 -1.5707963267948966" xyz="-0.17633333333333334  -0.24375000000000002 -0.175"/>
+    <parent link="front_pans_center"/>
+    <child link="hotel_pan_sixth_6in_024"/>
+  </joint>
+  <link name="hotel_pan_sixth_6in_005">
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="package://salad_bar_description/urdf/meshes/visual/hotel_pan_sixth_6in.STL"/>
+      </geometry>
+      <material name="">
+        <color rgba="0 1 1 1"/>
+      </material>
+    </visual>
+    <!-- simpler, box collision geo when we don't care about serving from this pan -->
+    <!-- TODO: bounding box for racked utensil -->
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0.0834"/>
+      <geometry>
+        <box size="0.175 0.19 0.17"/>
+      </geometry>
+    </collision>
+    <!-- accurate collision geo for pan -->
+  </link>
+  <joint name="front_pans_center_to_hotel_pan_sixth_6in_005" type="fixed">
+    <origin rpy="0 0 -1.5707963267948966" xyz="0.17633333333333334  -0.40625 -0.175"/>
+    <parent link="front_pans_center"/>
+    <child link="hotel_pan_sixth_6in_005"/>
+  </joint>
+  <link name="hotel_pan_sixth_6in_015">
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="package://salad_bar_description/urdf/meshes/visual/hotel_pan_sixth_6in.STL"/>
+      </geometry>
+      <material name="">
+        <color rgba="0 1 1 1"/>
+      </material>
+    </visual>
+    <!-- simpler, box collision geo when we don't care about serving from this pan -->
+    <!-- TODO: bounding box for racked utensil -->
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0.0834"/>
+      <geometry>
+        <box size="0.175 0.19 0.17"/>
+      </geometry>
+    </collision>
+    <!-- accurate collision geo for pan -->
+  </link>
+  <joint name="front_pans_center_to_hotel_pan_sixth_6in_015" type="fixed">
+    <origin rpy="0 0 -1.5707963267948966" xyz="0  -0.40625 -0.175"/>
+    <parent link="front_pans_center"/>
+    <child link="hotel_pan_sixth_6in_015"/>
+  </joint>
+  <link name="hotel_pan_sixth_6in_025">
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="package://salad_bar_description/urdf/meshes/visual/hotel_pan_sixth_6in.STL"/>
+      </geometry>
+      <material name="">
+        <color rgba="0 1 1 1"/>
+      </material>
+    </visual>
+    <!-- simpler, box collision geo when we don't care about serving from this pan -->
+    <!-- TODO: bounding box for racked utensil -->
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0.0834"/>
+      <geometry>
+        <box size="0.175 0.19 0.17"/>
+      </geometry>
+    </collision>
+    <!-- accurate collision geo for pan -->
+  </link>
+  <joint name="front_pans_center_to_hotel_pan_sixth_6in_025" type="fixed">
+    <origin rpy="0 0 -1.5707963267948966" xyz="-0.17633333333333334  -0.40625 -0.175"/>
+    <parent link="front_pans_center"/>
+    <child link="hotel_pan_sixth_6in_025"/>
+  </joint>
+  <link name="hotel_pan_full_6in_200">
+    <visual>
+      <origin rpy="0 0 1.5707963267948966" xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="package://salad_bar_description/urdf/meshes/visual/hotel_pan_full_6in.STL"/>
+      </geometry>
+      <material name="">
+        <color rgba="0 1 1 1"/>
+      </material>
+    </visual>
+    <!-- simpler, box collision geo when we don't care about serving from this pan -->
+    <!-- TODO: bounding box for racked utensil -->
+    <collision>
+      <origin rpy="0 0 -1.5707963267948966" xyz="0 0 0.0834"/>
+      <geometry>
+        <box size="0.53 0.34 0.17"/>
+      </geometry>
+    </collision>
+    <!-- accurate collision geo for pan -->
+    <!-- TODO: fix collision geo, this is just copied over from hotel_pan_sixth_6in -->
+    <!-- Should be accuate now, measured manually and cross referenced to online vendors -->
+  </link>
+  <joint name="back_pans_center_to_hotel_pan_full_6in_200" type="fixed">
+    <origin rpy="0 0 -1.5707963267948966" xyz="0 0.325 -0.175"/>
+    <parent link="back_pans_center"/>
+    <child link="hotel_pan_full_6in_200"/>
+  </joint>
+  <link name="hotel_pan_sixth_6in_202">
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="package://salad_bar_description/urdf/meshes/visual/hotel_pan_sixth_6in.STL"/>
+      </geometry>
+      <material name="">
+        <color rgba="0 1 1 1"/>
+      </material>
+    </visual>
+    <!-- simpler, box collision geo when we don't care about serving from this pan -->
+    <!-- TODO: bounding box for racked utensil -->
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0.0834"/>
+      <geometry>
+        <box size="0.175 0.19 0.17"/>
+      </geometry>
+    </collision>
+    <!-- accurate collision geo for pan -->
+  </link>
+  <joint name="back_pans_center_to_hotel_pan_sixth_6in_202" type="fixed">
+    <origin rpy="0 0 -1.5707963267948966" xyz="0.17633333333333334  0.08125 -0.175"/>
+    <parent link="back_pans_center"/>
+    <child link="hotel_pan_sixth_6in_202"/>
+  </joint>
+  <link name="hotel_pan_sixth_6in_212">
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="package://salad_bar_description/urdf/meshes/visual/hotel_pan_sixth_6in.STL"/>
+      </geometry>
+      <material name="">
+        <color rgba="0 1 1 1"/>
+      </material>
+    </visual>
+    <!-- simpler, box collision geo when we don't care about serving from this pan -->
+    <!-- TODO: bounding box for racked utensil -->
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0.0834"/>
+      <geometry>
+        <box size="0.175 0.19 0.17"/>
+      </geometry>
+    </collision>
+    <!-- accurate collision geo for pan -->
+  </link>
+  <joint name="back_pans_center_to_hotel_pan_sixth_6in_212" type="fixed">
+    <origin rpy="0 0 -1.5707963267948966" xyz="0  0.08125 -0.175"/>
+    <parent link="back_pans_center"/>
+    <child link="hotel_pan_sixth_6in_212"/>
+  </joint>
+  <link name="hotel_pan_sixth_6in_222">
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="package://salad_bar_description/urdf/meshes/visual/hotel_pan_sixth_6in.STL"/>
+      </geometry>
+      <material name="">
+        <color rgba="0 1 1 1"/>
+      </material>
+    </visual>
+    <!-- simpler, box collision geo when we don't care about serving from this pan -->
+    <!-- TODO: bounding box for racked utensil -->
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0.0834"/>
+      <geometry>
+        <box size="0.175 0.19 0.17"/>
+      </geometry>
+    </collision>
+    <!-- accurate collision geo for pan -->
+  </link>
+  <joint name="back_pans_center_to_hotel_pan_sixth_6in_222" type="fixed">
+    <origin rpy="0 0 -1.5707963267948966" xyz="-0.17633333333333334  0.08125 -0.175"/>
+    <parent link="back_pans_center"/>
+    <child link="hotel_pan_sixth_6in_222"/>
+  </joint>
+  <link name="hotel_pan_sixth_6in_203">
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="package://salad_bar_description/urdf/meshes/visual/hotel_pan_sixth_6in.STL"/>
+      </geometry>
+      <material name="">
+        <color rgba="0 1 1 1"/>
+      </material>
+    </visual>
+    <!-- simpler, box collision geo when we don't care about serving from this pan -->
+    <!-- TODO: bounding box for racked utensil -->
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0.0834"/>
+      <geometry>
+        <box size="0.175 0.19 0.17"/>
+      </geometry>
+    </collision>
+    <!-- accurate collision geo for pan -->
+  </link>
+  <joint name="back_pans_center_to_hotel_pan_sixth_6in_203" type="fixed">
+    <origin rpy="0 0 -1.5707963267948966" xyz="0.17633333333333334  -0.08125 -0.175"/>
+    <parent link="back_pans_center"/>
+    <child link="hotel_pan_sixth_6in_203"/>
+  </joint>
+  <link name="hotel_pan_sixth_6in_213">
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="package://salad_bar_description/urdf/meshes/visual/hotel_pan_sixth_6in.STL"/>
+      </geometry>
+      <material name="">
+        <color rgba="0 1 1 1"/>
+      </material>
+    </visual>
+    <!-- simpler, box collision geo when we don't care about serving from this pan -->
+    <!-- TODO: bounding box for racked utensil -->
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0.0834"/>
+      <geometry>
+        <box size="0.175 0.19 0.17"/>
+      </geometry>
+    </collision>
+    <!-- accurate collision geo for pan -->
+  </link>
+  <joint name="back_pans_center_to_hotel_pan_sixth_6in_213" type="fixed">
+    <origin rpy="0 0 -1.5707963267948966" xyz="0  -0.08125 -0.175"/>
+    <parent link="back_pans_center"/>
+    <child link="hotel_pan_sixth_6in_213"/>
+  </joint>
+  <link name="hotel_pan_sixth_6in_223">
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="package://salad_bar_description/urdf/meshes/visual/hotel_pan_sixth_6in.STL"/>
+      </geometry>
+      <material name="">
+        <color rgba="0 1 1 1"/>
+      </material>
+    </visual>
+    <!-- simpler, box collision geo when we don't care about serving from this pan -->
+    <!-- TODO: bounding box for racked utensil -->
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 0.0834"/>
+      <geometry>
+        <box size="0.175 0.19 0.17"/>
+      </geometry>
+    </collision>
+    <!-- accurate collision geo for pan -->
+  </link>
+  <joint name="back_pans_center_to_hotel_pan_sixth_6in_223" type="fixed">
+    <origin rpy="0 0 -1.5707963267948966" xyz="-0.17633333333333334  -0.08125 -0.175"/>
+    <parent link="back_pans_center"/>
+    <child link="hotel_pan_sixth_6in_223"/>
+  </joint>
+  <link name="hotel_pan_full_6in_202">
+    <visual>
+      <origin rpy="0 0 1.5707963267948966" xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="package://salad_bar_description/urdf/meshes/visual/hotel_pan_full_6in.STL"/>
+      </geometry>
+      <material name="">
+        <color rgba="0 1 1 1"/>
+      </material>
+    </visual>
+    <!-- simpler, box collision geo when we don't care about serving from this pan -->
+    <!-- TODO: bounding box for racked utensil -->
+    <collision>
+      <origin rpy="0 0 -1.5707963267948966" xyz="0 0 0.0834"/>
+      <geometry>
+        <box size="0.53 0.34 0.17"/>
+      </geometry>
+    </collision>
+    <!-- accurate collision geo for pan -->
+    <!-- TODO: fix collision geo, this is just copied over from hotel_pan_sixth_6in -->
+    <!-- Should be accuate now, measured manually and cross referenced to online vendors -->
+  </link>
+  <joint name="back_pans_center_to_hotel_pan_full_6in_202" type="fixed">
+    <origin rpy="0 0 -1.5707963267948966" xyz="0 -0.325 -0.175"/>
+    <parent link="back_pans_center"/>
+    <child link="hotel_pan_full_6in_202"/>
+  </joint>
