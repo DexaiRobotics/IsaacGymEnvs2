@@ -369,6 +369,7 @@
       <geometry>
         <mesh filename="package://dexai/meshes/RH-TCS_C.obj"/>
       </geometry>
+      <!-- anything less than 512 and the tool fails to attach-->
       <sdf resolution="512"/>
       <material name="panda_white"/>
     </collision>

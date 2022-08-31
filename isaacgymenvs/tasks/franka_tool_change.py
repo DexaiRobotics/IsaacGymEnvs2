@@ -1,5 +1,6 @@
 import numpy as np
 import os
+import time
 
 from typing import Tuple
 from isaacgym import gymtorch, gymutil, gymapi
@@ -77,9 +78,6 @@ def compute_reward(
     time_term = -time_penalty_scale * progress_buf
 
     dpose = torch.norm(torch.column_stack([pos_err, orn_err]), dim=-1)
-    print(
-        f"true dpose: {float(dpose[0])}, reached_threshold_norm = {reached_threshold_norm}"
-    )
     reached = (
         torch.norm(torch.column_stack([pos_err, orn_err]), dim=-1)
         < reached_threshold_norm
@@ -90,9 +88,9 @@ def compute_reward(
         attach_reward,
         dist_term + align_term + time_term + conclude_term,
     )
-    print(
-        f"dist_term: {dist_term[0]}, align_term: {align_term[0]}, time_term: {time_term[0]}, conclude_term: {conclude_term[0]}"
-    )
+    # print(
+    #     f"dist_term: {dist_term[0]}, align_term: {align_term[0]}, time_term: {time_term[0]}, conclude_term: {conclude_term[0]}"
+    # )
     rew_buf[knocked_off] = -knockoff_penalty
     reset_buf = torch.where(
         (progress_buf >= max_episode_length - 1)  # timeout
@@ -340,12 +338,12 @@ class FrankaToolChange(VecTask):
                     env, self._robot_actor_handle
                 )
             ):
-                robot_shape_props[j].friction = 0.05
+                robot_shape_props[j].friction = 0.01
                 robot_shape_props[j].rolling_friction = 0  # default = 0.0
                 robot_shape_props[j].torsion_friction = 0  # default = 0.0
                 robot_shape_props[j].restitution = 0
                 robot_shape_props[j].compliance = 0  # default = 0.0
-                robot_shape_props[j].thickness = -0.0015  # default = 0.0
+                robot_shape_props[j].thickness = 0  # Flex only
             self.gym.set_actor_rigid_shape_properties(
                 env, self._robot_actor_handle, robot_shape_props
             )
@@ -369,7 +367,7 @@ class FrankaToolChange(VecTask):
                 ws_props[j].torsion_friction = 0  # default = 0.0
                 ws_props[j].restitution = 0
                 ws_props[j].compliance = 0  # default = 0.0
-                ws_props[j].thickness = 0  # default = 0.0
+                ws_props[j].thickness = 0  # Flex only
             self.gym.set_actor_rigid_shape_properties(
                 env, ws_actor_handle, ws_props
             )
@@ -416,12 +414,12 @@ class FrankaToolChange(VecTask):
                     env, self._cube_actor_handle
                 )
             ):
-                cube_shape_props[j].friction = 3
+                cube_shape_props[j].friction = 0.5
                 cube_shape_props[j].rolling_friction = 0  # default = 0.0
                 cube_shape_props[j].torsion_friction = 0  # default = 0.0
                 cube_shape_props[j].restitution = 0
                 cube_shape_props[j].compliance = 0  # default = 0.0
-                cube_shape_props[j].thickness = 0  # default = 0.0
+                cube_shape_props[j].thickness = 0  # Flex only
             self.gym.set_actor_rigid_shape_properties(
                 env, self._cube_actor_handle, cube_shape_props
             )
@@ -444,12 +442,12 @@ class FrankaToolChange(VecTask):
                     env, self._tool_actor_handle
                 )
             ):
-                tool_shape_props[j].friction = 0.2
+                tool_shape_props[j].friction = 0.1
                 tool_shape_props[j].rolling_friction = 0  # default = 0.0
                 tool_shape_props[j].torsion_friction = 0  # default = 0.0
                 tool_shape_props[j].restitution = 0
                 tool_shape_props[j].compliance = 0  # default = 0.0
-                tool_shape_props[j].thickness = 0  # default = 0.0
+                tool_shape_props[j].thickness = 0  # Flex only
             self.gym.set_actor_rigid_shape_properties(
                 env, self._tool_actor_handle, tool_shape_props
             )
@@ -605,6 +603,7 @@ class FrankaToolChange(VecTask):
             self._action_limit = self._robot_effort_limits[
                 -7:
             ]  # .unsqueeze(0)
+        self._last_timestamp = None
 
         # Reset all environments
         self.reset_idx(
@@ -635,7 +634,7 @@ class FrankaToolChange(VecTask):
 
     def reset_idx(self, env_ids):
         """Reset environments given specific env_ids."""
-        print(f"resetting envs: {env_ids.tolist()}")
+        # print(f"resetting envs: {env_ids.tolist()}")
         # reset tool
         tool_actor_indices = self._global_tool_actor_indices[env_ids]
         self._root_state[env_ids, self._tool_actor_handle] = random_tool_pose(
@@ -786,7 +785,7 @@ class FrankaToolChange(VecTask):
                     .expand(self.num_envs, 3)
                     .clone()
                 )
-                t2[~self._reached0, 2] -= 0.03
+                t2[~self._reached0, 2] -= 0.05  # intermediate waypoint
                 q2 = self._relative_attach_pose[3:7].expand(self.num_envs, 4)
                 target_q, target_t = tu.tf_combine(q1, t1, q2, t2)
                 target_pose = torch.concat(
@@ -802,10 +801,7 @@ class FrankaToolChange(VecTask):
                 dpose = torch.cat([pos_err, orn_err], dim=-1)
                 self._reached0 |= torch.norm(dpose, dim=-1) <= 0.02
                 cobot_action = dpose  # overwrite cobot_action
-                print(
-                    f"progress: {self.progress_buf[0]}, dpose: {torch.norm(dpose[0])}"
-                )
-            self._pos_control[env_mask, -7:] += self._compute_ik_dq(
+            self._pos_control[env_mask, -7:] +=  self._compute_ik_dq(
                 cobot_action
             )[env_mask]
         elif self._control_type == "joint_torques":
@@ -822,6 +818,11 @@ class FrankaToolChange(VecTask):
     def post_physics_step(self):
         """Reset envs for rset buffer. Compute observations and rewards."""
         self.progress_buf += 1
+        current_timestamp = time.time()
+        if self._last_timestamp:
+            dt = current_timestamp - self._last_timestamp
+            print(f"{round(1 / dt):3d} FPS, time dilation scale: {dt / self.sim_params.dt:5.2f}", end='\r')
+        self._last_timestamp = current_timestamp
         self.reset_done()
         self._refresh_tensor_buffer()
 
@@ -879,12 +880,11 @@ class FrankaToolChange(VecTask):
             > self.cfg["env"]["knockoffThresholdNorm"]
         )
         conclude = self.actions[:, -1] > 0
-
-        print("ee_target_pose q:", ee_target_pose[0, 3:7])
-        print("ee_actual_pose q:", ee_actual_pose[0, 3:7])
-        print(
-            "q_err", quat_dist(ee_actual_pose[0, 3:7], ee_target_pose[0, 3:7])
-        )
+        # print("ee_target_pose q:", ee_target_pose[0, 3:7])
+        # print("ee_actual_pose q:", ee_actual_pose[0, 3:7])
+        # print(
+        #     "q_err", quat_dist(ee_actual_pose[0, 3:7], ee_target_pose[0, 3:7])
+        # )
         rew_buf, reset_buf = compute_reward(
             self.reset_buf,
             self.progress_buf,

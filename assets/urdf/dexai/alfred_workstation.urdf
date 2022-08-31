@@ -83,7 +83,7 @@
       <geometry>
         <mesh filename="package://dexai/meshes/vine_6th_pans.obj"/>
       </geometry>
-      <sdf resolution="512"/>
+      <sdf resolution="8"/>
     </collision>
   </link>
 
