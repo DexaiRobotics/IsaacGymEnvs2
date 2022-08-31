@@ -18,7 +18,7 @@ env:
 
   frankaDofNoise: 0.25
 
-  aggregateMode: 0
+  aggregateMode: 3
   
   distRewardScale: 10
   alignRewardScale: 10

@@ -130,22 +130,20 @@ class FrankaToolChange(VecTask):
         tool_asset_opts.linear_damping = 0.0  # default = 0.0
         tool_asset_opts.angular_damping = 0.0  # default = 0.5
         # tool_asset_opts.use_mesh_materials = True
-        # self._assets['disher_2oz'] = self.gym.create_box(  # TODO: replace this with real tools
-        #     self.sim, 0.1, 0.1, 0.3, tool_asset_opts
-        # )
-        print("loading tool asset")
-        self._assets[
-            "disher_2oz"
-        ] = self.gym.load_asset(  # TODO: replace this with real tools
-            self.sim,
-            asset_root,
-            self.cfg["env"]["asset"]["assetFileNameDisher2oz"],
-            tool_asset_opts,
-        )
-        print(
-            "num disher_2oz bodies: ",
-            self.gym.get_asset_rigid_body_count(self._assets["disher_2oz"]),
-        )
+        print("loading tool assets")
+        for tool_name in ["disher_2oz"]:
+            self._assets[
+                tool_name
+            ] = self.gym.load_asset(  # TODO: replace this with real tools
+                self.sim,
+                asset_root,
+                self.cfg["env"]["asset"]["assetFileNameDisher2oz"],
+                tool_asset_opts,
+            )
+            print(
+                f"{tool_name} num bodies: ",
+                self.gym.get_asset_rigid_body_count(self._assets[tool_name]),
+            )
 
         # Create workstation asset (table etc.)
         ws_asset_opts = gymapi.AssetOptions()
@@ -214,10 +212,15 @@ class FrankaToolChange(VecTask):
             f"robot dof names: {self.gym.get_asset_dof_names(self._assets['robot'])}"
         )
 
-        print(
-            "num disher_2oz bodies: ",
-            self.gym.get_asset_rigid_body_count(self._assets["disher_2oz"]),
-        )
+        tool_num_bodies = {}
+        tool_num_shapes = {}
+        for tool_name in ["disher_2oz"]:
+            tool_num_bodies[tool_name] = self.gym.get_asset_rigid_body_count(
+                self._assets[tool_name]
+            )
+            tool_num_shapes[tool_name] = self.gym.get_asset_rigid_shape_count(
+                self._assets[tool_name]
+            )
 
         # set robot dof properties
         robot_dof_props = self.gym.get_asset_dof_properties(
@@ -278,18 +281,16 @@ class FrankaToolChange(VecTask):
         upper = gymapi.Vec3(spacing, spacing, spacing)
 
         # compute aggregate size, 1 extra for cube in bin
-        max_agg_bodies = (
+        max_agg_bodies_0 = (
             self.gym.get_asset_rigid_body_count(self._assets["robot"])
             + self.gym.get_asset_rigid_body_count(self._assets["ws"])
             + 1  # cube
         )  # still need to count the specific tool
-        max_agg_bodies = 1000
-        max_agg_shapes = (
+        max_agg_shapes_0 = (
             self.gym.get_asset_rigid_shape_count(self._assets["robot"])
             + self.gym.get_asset_rigid_shape_count(self._assets["ws"])
             + 1  # cube
         )  # still need to count the specific tool
-        max_agg_shapes = 1000
         self.envs = []
         # Create environments
         for i in range(self.num_envs):
@@ -308,6 +309,14 @@ class FrankaToolChange(VecTask):
                 ).as_quat()
             )
 
+            tool = self.cfg["tools"][i % len(self.cfg["tools"])]
+            bin_name = tool["tool_id"][tool["tool_id"].find("hotel_pan_") :]
+            tool_name = (
+                tool["tool_id"].split("_hotel_pan_")[0].replace("tool_", "")
+            )
+            print(f"tool_name: {tool_name}")
+            max_agg_bodies = max_agg_bodies_0 + tool_num_bodies[tool_name]
+            max_agg_shapes = max_agg_shapes_0 + tool_num_shapes[tool_name]
             # create robot actor
             # NOTE: franka should ALWAYS be loaded first in sim!
             if self.cfg["env"]["aggregateMode"] >= 3:
@@ -327,7 +336,7 @@ class FrankaToolChange(VecTask):
             self._ee_rigid_body_index = self.gym.find_actor_rigid_body_index(
                 env, self._robot_actor_handle, "panda_hand", gymapi.DOMAIN_ENV
             )
-            tool = self.cfg["tools"][i % len(self.cfg["tools"])]
+
             self._init_robot_dof_pos[i] = torch.tensor(tool["start_dof_pos"])
 
             robot_shape_props = self.gym.get_actor_rigid_shape_properties(
@@ -380,10 +389,6 @@ class FrankaToolChange(VecTask):
                 tool["bin_dims"][2] * 0.8 * np.random.rand(),
                 cube_asset_opts,
             )
-            bin_name = tool["tool_id"][tool["tool_id"].find("hotel_pan_") :]
-            tool_name = (
-                tool["tool_id"].split("_hotel_pan_")[0].replace("tool_", "")
-            )
             # look up bin body to find bin position for centring cube
             try:
                 ws_rbd = self.gym.get_actor_rigid_body_dict(
@@ -429,7 +434,6 @@ class FrankaToolChange(VecTask):
             self._init_tool_state[i, 2] += 0.04  # dtop off height in metres
 
             # create tool actor
-            print(f"tool_name: {tool_name}")
             tool_location = gymapi.Transform()
             self._tool_actor_handle = self.gym.create_actor(
                 env, self._assets[tool_name], tool_location, "tool", i
@@ -801,7 +805,7 @@ class FrankaToolChange(VecTask):
                 dpose = torch.cat([pos_err, orn_err], dim=-1)
                 self._reached0 |= torch.norm(dpose, dim=-1) <= 0.02
                 cobot_action = dpose  # overwrite cobot_action
-            self._pos_control[env_mask, -7:] +=  self._compute_ik_dq(
+            self._pos_control[env_mask, -7:] += self._compute_ik_dq(
                 cobot_action
             )[env_mask]
         elif self._control_type == "joint_torques":
@@ -821,7 +825,10 @@ class FrankaToolChange(VecTask):
         current_timestamp = time.time()
         if self._last_timestamp:
             dt = current_timestamp - self._last_timestamp
-            print(f"{round(1 / dt):3d} FPS, time dilation scale: {dt / self.sim_params.dt:5.2f}", end='\r')
+            print(
+                f"{round(1 / dt):3d} FPS, time dilation scale: {dt / self.sim_params.dt:5.2f}",
+                end="\r",
+            )
         self._last_timestamp = current_timestamp
         self.reset_done()
         self._refresh_tensor_buffer()
