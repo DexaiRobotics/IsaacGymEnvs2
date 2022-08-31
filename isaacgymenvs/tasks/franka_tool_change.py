@@ -1,6 +1,7 @@
 import numpy as np
 import os
 
+from typing import Tuple
 from isaacgym import gymtorch, gymutil, gymapi
 import isaacgym.torch_utils as tu
 
@@ -17,8 +18,17 @@ def quat_dist(q1, q2):
     """Use one of several possible metrics to calculate quaternion distance.
 
     Convention is xyzw, each q of batched shape (..., 4).
+
+    The coefficient 2*sqrt(2) is omitted.
     """
-    return 1 - (q1 * q2).sum(dim=-1)
+    return 1 - (q1 * q2).sum(dim=-1).square()
+
+
+@torch.jit.script
+def orientation_error(desired, current):
+    cc = tu.quat_conjugate(current)
+    q_r = tu.quat_mul(desired, cc)
+    return q_r[:, 0:3] * torch.sign(q_r[:, 3]).unsqueeze(-1)
 
 
 @torch.jit.script
@@ -35,30 +45,40 @@ def random_tool_pose(pose, pos_noise_scale, rot_noise_scale):
 
 
 # TODO: add torque penalty term
-# @torch.jit.script
+@torch.jit.script
 def compute_reward(
-    reset_buf,
-    progress_buf,
-    pose_err,
-    knocked_off,
-    conclude,
-    dist_reward_scale,
-    align_reward_scale,
-    torque_penalty_scale,
-    time_penalty_scale,
-    knockoff_penalty,
-    attach_threshold_norm,
-    attach_reward,
-    conclude_reward,
-    max_episode_length,
-):
-    pos_err = torch.norm(pose_err[:, :3], dim=-1)
-    dist_term = dist_reward_scale * (1 - torch.tanh(5 * pos_err))
-    align_term = align_reward_scale * (
-        1 - torch.tanh(5 * torch.norm(pose_err[:, 3:7], dim=-1))
+    reset_buf: torch.Tensor,
+    progress_buf: torch.Tensor,
+    ee_target_pose_truth: torch.Tensor,
+    ee_actual_pose: torch.Tensor,
+    knocked_off: torch.Tensor,
+    conclude: torch.Tensor,
+    dist_reward_scale: float,
+    align_reward_scale: float,
+    torque_penalty_scale: float,
+    time_penalty_scale: float,
+    knockoff_penalty: float,
+    reached_threshold_norm: float,
+    attach_reward: float,
+    conclude_reward: float,
+    max_episode_length: int,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    pos_err = torch.norm(ee_actual_pose[:, :3] - ee_target_pose_truth[:, :3], dim=-1)
+    orn_err = torch.norm(
+        orientation_error(ee_actual_pose[:, 3:7], ee_target_pose_truth[:, 3:7]), dim=-1
     )
+    dist_term = dist_reward_scale * (1 - torch.tanh(5 * pos_err))
+    align_term = align_reward_scale * (1 - torch.tanh(0.6 * orn_err))
     time_term = -time_penalty_scale * progress_buf
-    reached = torch.norm(pose_err, dim=-1) < attach_threshold_norm
+
+    dpose = torch.norm(torch.column_stack([pos_err, orn_err]), dim=-1)
+    print(
+        f"true dpose: {float(dpose[0])}, reached_threshold_norm = {reached_threshold_norm}"
+    )
+    reached = (
+        torch.norm(torch.column_stack([pos_err, orn_err]), dim=-1)
+        < reached_threshold_norm
+    )
     conclude_term = conclude_reward * torch.where(reached == conclude, 1, -1)
     rew_buf = torch.where(
         reached,
@@ -71,13 +91,12 @@ def compute_reward(
     rew_buf[knocked_off] = -knockoff_penalty
     reset_buf = torch.where(
         (progress_buf >= max_episode_length - 1)  # timeout
-        | (pos_err > 0.8)  # deviated too far
+        | (pos_err > 1)  # deviated too far
         | ((reached > 0) & (conclude > 0))  # reached attach pose and concluded
         | (knocked_off > 0),  # knocked off tool
         1,  # torch.ones_like(reset_buf),
         reset_buf,
     )
-    print(f"rew_buf: {rew_buf}")
     return rew_buf, reset_buf
 
 
@@ -111,6 +130,7 @@ class FrankaToolChange(VecTask):
         # self._assets['disher_2oz'] = self.gym.create_box(  # TODO: replace this with real tools
         #     self.sim, 0.1, 0.1, 0.3, tool_asset_opts
         # )
+        print("loading tool asset")
         self._assets[
             "disher_2oz"
         ] = self.gym.load_asset(  # TODO: replace this with real tools
@@ -130,6 +150,7 @@ class FrankaToolChange(VecTask):
         ws_asset_opts.density = 7500
         ws_asset_opts.fix_base_link = True
         # self._assets['ws'] = self.gym.create_box(self.sim, 0.8302, 1.2738, 0.89, ws_asset_opts)
+        print("loading workstation asset")
         self._assets["ws"] = self.gym.load_asset(
             self.sim,
             asset_root,
@@ -159,10 +180,11 @@ class FrankaToolChange(VecTask):
         robot_asset_opts.disable_gravity = True  # TODO(@dyt): enable
         robot_asset_opts.enable_gyroscopic_forces = False
         robot_asset_opts.fix_base_link = True
-        # robot_asset_opts.flip_visual_attachments = False
+        # robot_asset_opts.flip_visual_attachments = True
         robot_asset_opts.thickness = 0
         # robot_asset_opts.convex_decomposition_from_submeshes = True
         robot_asset_opts.use_mesh_materials = True
+        print("loading robot asset")
         self._assets["robot"] = self.gym.load_asset(
             self.sim,
             asset_root,
@@ -292,6 +314,22 @@ class FrankaToolChange(VecTask):
             tool = self.cfg["tools"][i % len(self.cfg["tools"])]
             self._init_robot_dof_pos[i] = torch.tensor(tool["start_dof_pos"])
 
+            robot_shape_props = self.gym.get_actor_rigid_shape_properties(
+                env, self._robot_actor_handle
+            )
+            for j in range(
+                self.gym.get_actor_rigid_shape_count(env, self._robot_actor_handle)
+            ):
+                robot_shape_props[j].friction = 0.05
+                robot_shape_props[j].rolling_friction = 0  # default = 0.0
+                robot_shape_props[j].torsion_friction = 0  # default = 0.0
+                robot_shape_props[j].restitution = 0
+                robot_shape_props[j].compliance = 0  # default = 0.0
+                robot_shape_props[j].thickness = -0.0015  # default = 0.0
+            self.gym.set_actor_rigid_shape_properties(
+                env, self._robot_actor_handle, robot_shape_props
+            )
+
             # create workstation
             if self.cfg["env"]["aggregateMode"] == 2:
                 self.gym.begin_aggregate(env, max_agg_bodies, max_agg_shapes, True)
@@ -300,7 +338,7 @@ class FrankaToolChange(VecTask):
             )
             ws_props = self.gym.get_actor_rigid_shape_properties(env, ws_actor_handle)
             for j in range(self.gym.get_actor_rigid_shape_count(env, ws_actor_handle)):
-                ws_props[j].friction = 0.2
+                ws_props[j].friction = 0.1
                 ws_props[j].rolling_friction = 0  # default = 0.0
                 ws_props[j].torsion_friction = 0  # default = 0.0
                 ws_props[j].restitution = 0
@@ -336,6 +374,22 @@ class FrankaToolChange(VecTask):
             self._cube_actor_handle = self.gym.create_actor(
                 env, cube_asset, cube_location, "cube", i
             )  # int handle same for all envs
+            cube_shape_props = self.gym.get_actor_rigid_shape_properties(
+                env, self._cube_actor_handle
+            )
+            for j in range(
+                self.gym.get_actor_rigid_shape_count(env, self._cube_actor_handle)
+            ):
+                cube_shape_props[j].friction = 3
+                cube_shape_props[j].rolling_friction = 0  # default = 0.0
+                cube_shape_props[j].torsion_friction = 0  # default = 0.0
+                cube_shape_props[j].restitution = 0
+                cube_shape_props[j].compliance = 0  # default = 0.0
+                cube_shape_props[j].thickness = 0  # default = 0.0
+            self.gym.set_actor_rigid_shape_properties(
+                env, self._cube_actor_handle, cube_shape_props
+            )
+
             # the other 6 for velocities are always left as zeros
             self._init_tool_state[i, :7] = torch.tensor(tool["initial_pose"])
             self._init_tool_state[i, 2] += 0.04  # dtop off height in metres
@@ -346,17 +400,20 @@ class FrankaToolChange(VecTask):
             self._tool_actor_handle = self.gym.create_actor(
                 env, self._assets[tool_name], tool_location, "tool", i
             )
-            tool_props = self.gym.get_actor_rigid_shape_properties(
+            tool_shape_props = self.gym.get_actor_rigid_shape_properties(
                 env, self._tool_actor_handle
             )
-            tool_props[0].friction = 0.2
-            tool_props[0].rolling_friction = 0  # default = 0.0
-            tool_props[0].torsion_friction = 0  # default = 0.0
-            tool_props[0].restitution = 0
-            tool_props[0].compliance = 0  # default = 0.0
-            tool_props[0].thickness = 0  # default = 0.0
+            for j in range(
+                self.gym.get_actor_rigid_shape_count(env, self._tool_actor_handle)
+            ):
+                tool_shape_props[j].friction = 0.2
+                tool_shape_props[j].rolling_friction = 0  # default = 0.0
+                tool_shape_props[j].torsion_friction = 0  # default = 0.0
+                tool_shape_props[j].restitution = 0
+                tool_shape_props[j].compliance = 0  # default = 0.0
+                tool_shape_props[j].thickness = 0  # default = 0.0
             self.gym.set_actor_rigid_shape_properties(
-                env, self._tool_actor_handle, tool_props
+                env, self._tool_actor_handle, tool_shape_props
             )
             self._tool_rigid_body_index = self.gym.find_actor_rigid_body_index(
                 env, self._tool_actor_handle, tool_name, gymapi.DOMAIN_ENV
@@ -424,8 +481,8 @@ class FrankaToolChange(VecTask):
         force_render,
     ):
         self.cfg = cfg
-
-        # self.max_episode_length = self.cfg["env"]["episodeLength"]
+        # needed by base class
+        self.max_episode_length = self.cfg["env"]["episodeLength"]
 
         # Controller type
         self._control_type = self.cfg["env"]["controlType"]
@@ -433,19 +490,16 @@ class FrankaToolChange(VecTask):
         # obs include: pose_err (7)
         # TODO: add external wrench or joint torques
         if self._control_type == "osc":
-            self.cfg["env"]["numObservations"] = 7  # wrench 6, dpos 7
+            self.cfg["env"]["numObservations"] = 14  # wrench 6, dpos 7
             self.cfg["env"]["numActions"] = 7  # dpose in 6D OS, bool 1
         elif self._control_type == "ik":
-            self.cfg["env"]["numObservations"] = 7
+            self.cfg["env"]["numObservations"] = 14
             self.cfg["env"]["numActions"] = 7  # dpose in 6D OS, bool 1
         elif self._control_type == "joint_torque":
             self.cfg["env"]["numObservations"] = 19
             self.cfg["env"]["numActions"] = 8  # joint torques 7, bool 1
         else:
             raise ValueError(f"Unsupported control type: {self._control_type}")
-
-        # needed by base class
-        self.max_episode_length = self.cfg["env"]["episodeLength"]
 
         self._assets = {}
         super().__init__(  # this triggers a create_sim() call
@@ -468,8 +522,11 @@ class FrankaToolChange(VecTask):
         self._relative_attach_pose = tu.to_torch(
             self.cfg["env"]["relativeAttachPose"], device=self.device
         )
-        self._tool_pose = torch.nan * torch.ones(
+        self._initial_tool_pose = torch.nan * torch.ones(
             self.num_envs, 7, device=self.device, dtype=torch.float32
+        )
+        self._reached0 = torch.zeros(
+            self.num_envs, device=self.device, dtype=torch.bool
         )
         # TODO: penalise large external wrench on EE
         # self._external_wrench = torch.nan * torch.ones(
@@ -580,6 +637,7 @@ class FrankaToolChange(VecTask):
         # reset buffers of the base class
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
+        self._reached0[env_ids] = False
 
     def _refresh_tensor_buffer(self):
         self.gym.refresh_actor_root_state_tensor(self.sim)
@@ -634,9 +692,9 @@ class FrankaToolChange(VecTask):
         # solve damped least squares
         J_EE_T = torch.transpose(self._J_EE, 1, 2)
         Lambda = torch.eye(6, device=self.device) * (self.cfg["env"]["damping"] ** 2)
-        return (J_EE_T @ torch.inverse(self._J_EE @ J_EE_T + Lambda) @ dpose).view(
-            self.num_envs, 7
-        )
+        return (
+            J_EE_T @ torch.inverse(self._J_EE @ J_EE_T + Lambda) @ dpose.unsqueeze(-1)
+        ).view(self.num_envs, 7)
 
     def pre_physics_step(self, actions):
         self.actions = actions.clone().to(self.device)
@@ -651,7 +709,32 @@ class FrankaToolChange(VecTask):
             self._torque_control[:, -7:] = self._compute_osc_torques(cobot_action)
             print(f"torques: {self._torque_control[0, -7:]}")
         elif self._control_type == "ik":
-            self._pos_control[:, -7:] += self._compute_ik_dq(cobot_action)
+            # bypass policy output to test target position
+            # compute observation by setting self.obs_buf
+            env_mask = self.progress_buf >= self.cfg["env"]["skip"]
+            if self.cfg["env"]["disableRL"]:
+                t1 = self._initial_tool_pose[:, :3]
+                q1 = self._initial_tool_pose[:, 3:7]
+                t2 = self._relative_attach_pose[:3].expand(self.num_envs, 3).clone()
+                t2[~self._reached0, 2] -= 0.03
+                q2 = self._relative_attach_pose[3:7].expand(self.num_envs, 4)
+                target_q, target_t = tu.tf_combine(q1, t1, q2, t2)
+                target_pose = torch.concat(
+                    [target_t, target_q], dim=-1
+                )  # check (num_envs, 7)
+                actual_pose = self._rigid_body_state[:, self._ee_rigid_body_index, :7]
+                pos_err = target_pose[:, :3] - actual_pose[:, :3]
+                orn_err = orientation_error(target_pose[:, 3:7], actual_pose[:, 3:7])
+                dpose = torch.cat([pos_err, orn_err], dim=-1)
+                self._reached0 |= torch.norm(dpose, dim=-1) <= 0.02
+                print(
+                    f"progress: {self.progress_buf[0]}, dpose: {torch.norm(dpose[0])}"
+                )
+                self._pos_control[env_mask, -7:] += self._compute_ik_dq(dpose)[env_mask]
+            else:
+                self._pos_control[env_mask, -7:] += self._compute_ik_dq(cobot_action)[
+                    env_mask
+                ]
         elif self._control_type == "joint_torques":
             self._torque_control[:, -7:] = cobot_action
 
@@ -670,23 +753,38 @@ class FrankaToolChange(VecTask):
         self._refresh_tensor_buffer()
 
         # obtain ground truth tool pose
-        env_mask = self.progress_buf == self.cfg["env"]["skip"] - 1
-        self._tool_pose[env_mask] = self._rigid_body_state[
+        env_mask = (
+            torch.ones_like(self.progress_buf, dtype=torch.bool)
+            if self.cfg["env"]["disableRL"]
+            else self.progress_buf < self.cfg["env"]["skip"]
+        )
+        self._initial_tool_pose[env_mask] = self._rigid_body_state[
             env_mask, self._tool_rigid_body_index, :7
         ]
 
         # compute observation by setting self.obs_buf
-        t1 = self._rigid_body_state[:, self._tool_rigid_body_index, :3]
-        q1 = self._rigid_body_state[:, self._tool_rigid_body_index, 3:7]
-        t2 = self._relative_attach_pose[:3].expand(self.num_envs, 3)
-        q2 = self._relative_attach_pose[3:7].expand(self.num_envs, 4)
-        target_q, target_t = tu.tf_combine(q1, t1, q2, t2)
-        target_pose = torch.concat([target_t, target_q], dim=-1)  # check (num_envs, 7)
-        actual_pose = self._rigid_body_state[:, self._ee_rigid_body_index, :7]
-        pose_err = actual_pose - target_pose  # (num_envs, 7)
-        print(f"actual_pose: {actual_pose[0]}")
-        print(f"target_pose: {target_pose[0]}")
-        self.obs_buf = pose_err
+        t_world_tool_initial = self._initial_tool_pose[:, :3]
+        q_world_tool_initial = self._initial_tool_pose[:, 3:7]
+        t_world_tool_truth = self._rigid_body_state[:, self._tool_rigid_body_index, :3]
+        q_world_tool_truth = self._rigid_body_state[:, self._tool_rigid_body_index, 3:7]
+        t_tool_EE = self._relative_attach_pose[:3].expand(self.num_envs, 3)
+        q_tool_EE = self._relative_attach_pose[3:7].expand(self.num_envs, 4)
+        ee_target_pose = torch.concat(
+            tu.tf_combine(
+                q_world_tool_initial, t_world_tool_initial, q_tool_EE, t_tool_EE
+            )[::-1],
+            dim=-1,
+        )
+        ee_target_pose_truth = torch.concat(
+            tu.tf_combine(q_world_tool_truth, t_world_tool_truth, q_tool_EE, t_tool_EE)[
+                ::-1
+            ],
+            dim=-1,
+        )
+        ee_actual_pose = self._rigid_body_state[:, self._ee_rigid_body_index, :7]
+        # print(f"actual_pose: {actual_pose[0]}")
+        # print(f"target_pose: {target_pose[0]}")
+        self.obs_buf = torch.concat([ee_actual_pose, ee_target_pose], dim=-1)
         # compute reward for not only progress past skip
         # during skip, the conclude decision should be correct
         env_mask = self.progress_buf >= 0  # self.cfg['env']['skip']
@@ -699,10 +797,15 @@ class FrankaToolChange(VecTask):
             > self.cfg["env"]["knockoffThresholdNorm"]
         )
         conclude = self.actions[:, -1] > 0
+
+        print("ee_target_pose q:", ee_target_pose[0, 3:7])
+        print("ee_actual_pose q:", ee_actual_pose[0, 3:7])
+        print("q_err", quat_dist(ee_actual_pose[0, 3:7], ee_target_pose[0, 3:7]))
         rew_buf, reset_buf = compute_reward(
             self.reset_buf,
             self.progress_buf,
-            pose_err,
+            ee_target_pose_truth,  # (num_envs, 7)
+            ee_actual_pose,  # (num_envs, 7)
             knocked_off,
             conclude,
             self.cfg["env"]["distRewardScale"],
@@ -710,7 +813,7 @@ class FrankaToolChange(VecTask):
             self.cfg["env"]["torquePenaltyScale"],
             self.cfg["env"]["timePenaltyScale"],
             self.cfg["env"]["knockoffPenalty"],
-            self.cfg["env"]["attachThresholdNorm"],
+            self.cfg["env"]["reachedThresholdNorm"],
             self.cfg["env"]["attachReward"],
             self.cfg["env"]["concludeReward"],
             self.max_episode_length,
@@ -741,3 +844,13 @@ class FrankaToolChange(VecTask):
         # reset
         # self.reset_buf = self.progress_buf == 110
         # self.reset_done()
+
+        self.gym.clear_lines(self.viewer)
+        axes_geom = gymutil.AxesGeometry(scale=0.3)
+        tool_origin_location = gymapi.Transform()
+        for i, env in enumerate(self.envs):
+            tool_origin_location.p = gymapi.Vec3(*self._initial_tool_pose[i, :3])
+            tool_origin_location.r = gymapi.Quat(*self._initial_tool_pose[i, 3:7])
+            gymutil.draw_lines(
+                axes_geom, self.gym, self.viewer, env, tool_origin_location
+            )

@@ -22,7 +22,7 @@
       <geometry>
         <mesh filename="package://dexai/meshes/low_boy_3pan.obj"/>
       </geometry>
-      <sdf resolution="128"/>
+      <sdf resolution="1"/>
     </collision>
   </link>
   <joint name="low_boy_3pan_with_hotel_pans_to_low_boy_3pan_east" type="fixed">
@@ -31,7 +31,7 @@
     <origin rpy="0 0 0" xyz="0.4974 0 0"/>
   </joint>
 
-  <link name="low_boy_3pan_west">
+  <!-- <link name="low_boy_3pan_west">
     <visual>
       <geometry>
         <mesh filename="package://dexai/meshes/low_boy_3pan.obj"/>
@@ -44,14 +44,14 @@
       <geometry>
         <mesh filename="package://dexai/meshes/low_boy_3pan.obj"/>
       </geometry>
-      <!-- <sdf resolution="128"/> -->
+      <sdf resolution="128"/>
     </collision>
   </link>
   <joint name="low_boy_3pan_with_hotel_pans_to_low_boy_3pan_west" type="fixed">
     <parent link="low_boy_3pan_with_hotel_pans"/>
     <child link="low_boy_3pan_west"/>
     <origin rpy="0 0 3.141592653589793" xyz="-0.4974 0 0"/>
-  </joint>
+  </joint> -->
 
   <link name="vine_3rd_pans">
     <visual>

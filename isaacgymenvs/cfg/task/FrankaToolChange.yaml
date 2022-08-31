@@ -5,11 +5,11 @@ physics_engine: ${..physics_engine}
 
 # if given, will override the device setting in gym. 
 env:
-  numEnvs: ${resolve_default:2,${...num_envs}}
+  numEnvs: ${resolve_default:20,${...num_envs}}
   # numObservations: 32
   # numActions: 12
   envSpacing: 1.5
-  episodeLength: 512
+  episodeLength: 192
   enableDebugVis: False
   skip: 40  # let the tool settle
 
@@ -20,18 +20,22 @@ env:
 
   aggregateMode: 0
   
-  distRewardScale: 100
-  alignRewardScale: 100
+  distRewardScale: 10
+  alignRewardScale: 10
   torquePenaltyScale: 0.01
   timePenaltyScale: 0.001
-  knockoffThresholdNorm: 0.3
-  knockoffPenalty: 100
-  attachThresholdNorm: 0.005
-  attachReward: 100
+  knockoffThresholdNorm: 0.5
+  knockoffPenalty: 100.0
+  reachedThresholdNorm: 0.0052
+  attachReward: 100.0
   concludeReward: 0.1
 
+  disableRL: True
+
   # in tool frame, xyz
-  relativeAttachPose: [-0.00312, 0, 0.09317, 0, 0, 0, 1]
+  relativeAttachPose: [0, -0.00306, -0.080, 0, 0, 0, 1]  # -0.08245 nominal z
+
+  # relativeAttachPose: [-0.2, -0.1, -0.2, 0, 0, 0, 1]
 
   robotBasePositionNoise: 0.0
   robotBaseRotationNoise: 0.0
@@ -43,7 +47,7 @@ env:
   # to ensure not to exceed action limit
   actionScale: 0.2
 
-  controlType: osc  # options are {osc, ik, joint_torque}
+  controlType: ik  # options are {osc, ik, joint_torque}
   kp: [150, 150, 150, 150, 150, 150]
   # kd: 24.5  # 2.0 * np.sqrt(kp)
   kp_null: [10, 10, 10, 10, 10, 10, 10]
@@ -58,11 +62,14 @@ env:
     assetRoot: "../../assets"
 
     assetFileNameRobot: "urdf/dexai/alfred.urdf"
+    # assetFileNameRobot: "urdf/franka_description/robots/franka_panda.urdf"
+
     robotArmature: 0.01
-    robotDofStiffnessOSC: [5000, 5000, 400, 400, 400, 400, 400, 400, 400]
-    robotDofDampingOSC: [100, 100, 40, 40, 40, 40, 40, 40, 40]
-    frobotDofStiffnessIK: [5000, 5000, 400, 400, 400, 400, 400, 400, 400]
-    robotDofDampingIK: [100, 100, 40, 40, 40, 40, 40, 40, 40]
+    # the first two joints always under position control
+    robotDofStiffnessOSC: [800, 800, 0, 0, 0, 0, 0, 0, 0]
+    robotDofDampingOSC: [40, 40, 0, 0, 0, 0, 0, 0, 0]
+    robotDofStiffnessIK: [800, 800, 400, 400, 400, 400, 400, 400, 400]
+    robotDofDampingIK: [40, 40, 40, 40, 40, 40, 40, 40, 40]
 
     assetFileNameWorkstation: "urdf/dexai/alfred_workstation.urdf"
 
@@ -77,6 +84,7 @@ env:
 tools:
   - tool_id: tool_disher_2oz_hotel_pan_sixth_6in_024
     start_dof_pos: [0.9414, -2.09, 0.2787, -0.5150, -2.7638, -2.0193, 0.1854, 2.0644, -0.0464]
+    # start_dof_pos: [0.2787, -0.5150, -2.7638, -2.0193, 0.1854, 2.0644, -0.0464, 0, 0]
     bin_dims: [0.16, 0.174, 0.152]
     initial_pose: [0.2949, -0.3677, 0.0041, -0.5568, 0.7465, 0.2364, 0.2777]
 
@@ -84,7 +92,7 @@ sim:
   dt: 0.01667 # 1/60
   substeps: 4
   up_axis: "z"
-  use_gpu_pipeline: ${eq:${...pipeline},"cpu"}
+  use_gpu_pipeline: ${eq:${...pipeline},"gpu"}
   gravity: [0.0, 0.0, -9.81]
   physx:
     num_threads: ${....num_threads}
@@ -92,10 +100,10 @@ sim:
     use_gpu: ${contains:"cuda",${....sim_device}} # set to False to run on CPU
     num_position_iterations: 64
     num_velocity_iterations: 1
-    contact_offset: 0.001
+    contact_offset: 0.0005
     rest_offset: 0.0
-    friction_offset_threshold: 0.01
-    friction_correlation_distance: 0.0005
+    friction_offset_threshold: 0.0005
+    friction_correlation_distance: 0.001
     bounce_threshold_velocity: 0.2
     max_depenetration_velocity: 1000.0
     default_buffer_size_multiplier: 5.0
