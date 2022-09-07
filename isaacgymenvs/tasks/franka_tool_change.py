@@ -49,7 +49,8 @@ def random_tool_pose(pose, pos_noise_scale, rot_noise_scale):
 @torch.jit.script
 def compute_reward(
     reset_buf: torch.Tensor,
-    progress_buf: torch.Tensor,
+    progress_since_skip: torch.Tensor,  # substracted by skip already
+    progress_since_reached: torch.Tensor,
     ee_target_pose_truth: torch.Tensor,
     ee_actual_pose: torch.Tensor,
     knocked_off: torch.Tensor,
@@ -63,7 +64,7 @@ def compute_reward(
     attach_reward: float,
     conclude_reward: float,
     max_episode_length: int,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     pos_err = torch.norm(
         ee_actual_pose[:, :3] - ee_target_pose_truth[:, :3], dim=-1
     )
@@ -73,34 +74,47 @@ def compute_reward(
         ),
         dim=-1,
     )
-    dist_term = dist_reward_scale * (1 - torch.tanh(5 * pos_err))
-    align_term = align_reward_scale * (1 - torch.tanh(0.6 * orn_err))
-    time_term = -time_penalty_scale * progress_buf
+    dist_term = dist_reward_scale * (1 - torch.tanh(10 * pos_err))
+    align_term = align_reward_scale * (1 - torch.tanh(10 * orn_err))
+    time_term = -time_penalty_scale * progress_since_skip
 
     dpose = torch.norm(torch.column_stack([pos_err, orn_err]), dim=-1)
-    reached = (
-        torch.norm(torch.column_stack([pos_err, orn_err]), dim=-1)
-        < reached_threshold_norm
+    reached = dpose < reached_threshold_norm
+    progress_since_reached += 1 * (reached | progress_since_reached).to(
+        torch.bool
     )
-    conclude_term = conclude_reward * torch.where(reached == conclude, 1, -1)
-    rew_buf = torch.where(
-        reached,
-        attach_reward,
-        dist_term + align_term + time_term + conclude_term,
+    # print('dpose', float(dpose[0].cpu()), 'threshold', reached_threshold_norm, 'reached', bool(reached[0].cpu()), 'conclude', bool(conclude[0].cpu()))
+    conclude_term = conclude_reward * torch.where(
+        reached & (~conclude),
+        -progress_since_reached / 10.0,
+        (reached & conclude).to(torch.int64)
+        - (conclude != reached).to(torch.int64),
     )
-    # print(
-    #     f"dist_term: {dist_term[0]}, align_term: {align_term[0]}, time_term: {time_term[0]}, conclude_term: {conclude_term[0]}"
-    # )
+    attach_term = attach_reward * reached
+    rew_buf = dist_term + align_term + time_term + conclude_term + attach_term
+    print(
+        # f"dpose: {float(dpose[0])}, "
+        f"reached: {bool(reached[0])}, "
+        f"conclude: {bool(conclude[0])}, "
+        # f"dist_term: {float(dist_term[0])}, "
+        # f"align_term: {float(align_term[0])}, "
+        # f"time_term: {float(time_term[0])}, "
+        f"attach_term: {float(attach_term[0])}, "
+        f"conclude_term: {float(conclude_term[0])}, "
+        f"reward: {float(rew_buf[0])}"
+    )
     rew_buf[knocked_off] = -knockoff_penalty
     reset_buf = torch.where(
-        (progress_buf >= max_episode_length - 1)  # timeout
-        | (pos_err > 1)  # deviated too far
+        (progress_since_skip >= max_episode_length - 1)  # timeout
+        | (pos_err > 0.2)  # deviated too far
+        | (orn_err > 0.4)
         | ((reached > 0) & (conclude > 0))  # reached attach pose and concluded
-        | (knocked_off > 0),  # knocked off tool
-        1,  # torch.ones_like(reset_buf),
+        | (knocked_off > 0)  # knocked off tool
+        | (rew_buf < 0),  # penalised long enough
+        1,
         reset_buf,
     )
-    return rew_buf, reset_buf
+    return progress_since_reached, rew_buf, reset_buf
 
 
 class FrankaToolChange(VecTask):
@@ -178,8 +192,8 @@ class FrankaToolChange(VecTask):
         print(
             f"using default cobot drive mode: {robot_asset_opts.default_dof_drive_mode}"
         )
-        robot_asset_opts.disable_gravity = True  # TODO(@dyt): enable
-        robot_asset_opts.enable_gyroscopic_forces = False
+        robot_asset_opts.disable_gravity = True
+        robot_asset_opts.enable_gyroscopic_forces = True
         robot_asset_opts.fix_base_link = True
         # robot_asset_opts.flip_visual_attachments = True
         robot_asset_opts.thickness = 0
@@ -336,7 +350,9 @@ class FrankaToolChange(VecTask):
             self._ee_rigid_body_index = self.gym.find_actor_rigid_body_index(
                 env, self._robot_actor_handle, "panda_hand", gymapi.DOMAIN_ENV
             )
-
+            self.gym.enable_actor_dof_force_sensors(
+                env, self._robot_actor_handle
+            )
             self._init_robot_dof_pos[i] = torch.tensor(tool["start_dof_pos"])
 
             robot_shape_props = self.gym.get_actor_rigid_shape_properties(
@@ -386,7 +402,7 @@ class FrankaToolChange(VecTask):
             cube_asset = self.gym.create_box(
                 self.sim,
                 *np.array(tool["bin_dims"][:2]) * 1.3,
-                tool["bin_dims"][2] * 0.8 * np.random.rand(),
+                tool["bin_dims"][2] * 0.9 * np.random.rand(),
                 cube_asset_opts,
             )
             # look up bin body to find bin position for centring cube
@@ -446,7 +462,7 @@ class FrankaToolChange(VecTask):
                     env, self._tool_actor_handle
                 )
             ):
-                tool_shape_props[j].friction = 0.1
+                tool_shape_props[j].friction = 0.01
                 tool_shape_props[j].rolling_friction = 0  # default = 0.0
                 tool_shape_props[j].torsion_friction = 0  # default = 0.0
                 tool_shape_props[j].restitution = 0
@@ -503,6 +519,11 @@ class FrankaToolChange(VecTask):
         self._ee_vel = self._rigid_body_state[
             :, self._ee_rigid_body_index, -6:
         ]
+
+        _dof_forces = self.gym.acquire_dof_force_tensor(self.sim)
+        self._dof_forces = gymtorch.wrap_tensor(_dof_forces).view(
+            self.num_envs, -1
+        )
 
         # ee_index = self.gym.find_actor_rigid_body_handle(
         #     self.envs[0], self._robot_actor_handle, "panda_hand"
@@ -576,6 +597,9 @@ class FrankaToolChange(VecTask):
         self._reached0 = torch.zeros(
             self.num_envs, device=self.device, dtype=torch.bool
         )
+        self._progress_since_reached = torch.zeros(
+            self.num_envs, device=self.device, dtype=torch.int32
+        )
         # TODO: penalise large external wrench on EE
         # self._external_wrench = torch.nan * torch.ones(
         #     self.num_envs, 6, device=self.device, dtype=torch.float32)
@@ -619,9 +643,9 @@ class FrankaToolChange(VecTask):
 
         cam_pos = gymapi.Vec3(0.2, -0.7, 0.15)
         cam_target = gymapi.Vec3(0.3, -0.1, 0.01)
-        # middle_env = self.envs[
-        #     self.num_envs // 2 + int(np.sqrt(self.num_envs)) // 2
-        # ]
+        camera_env = self.envs[
+            self.num_envs // 2 + int(np.sqrt(self.num_envs)) // 2
+        ]  # middle env
         self.gym.viewer_camera_look_at(
             self.viewer, self.envs[0], cam_pos, cam_target
         )
@@ -696,8 +720,9 @@ class FrankaToolChange(VecTask):
 
         # reset buffers of the base class
         self.progress_buf[env_ids] = 0
-        self.reset_buf[env_ids] = 0
         self._reached0[env_ids] = False
+        self._progress_since_reached[env_ids] = 0
+        self.reset_buf[env_ids] = 0
 
     def _refresh_tensor_buffer(self):
         self.gym.refresh_actor_root_state_tensor(self.sim)
@@ -830,7 +855,6 @@ class FrankaToolChange(VecTask):
                 end="\r",
             )
         self._last_timestamp = current_timestamp
-        self.reset_done()
         self._refresh_tensor_buffer()
 
         # obtain ground truth tool pose
@@ -874,7 +898,9 @@ class FrankaToolChange(VecTask):
         ]
         # print(f"actual_pose: {actual_pose[0]}")
         # print(f"target_pose: {target_pose[0]}")
-        self.obs_buf = torch.concat([ee_actual_pose, ee_target_pose], dim=-1)
+        self.obs_buf = torch.concat(
+            [ee_actual_pose - ee_target_pose, self._dof_forces[:, -7:]], dim=-1
+        )
         # compute reward for not only progress past skip
         # during skip, the conclude decision should be correct
         env_mask = self.progress_buf >= 0  # self.cfg['env']['skip']
@@ -892,9 +918,10 @@ class FrankaToolChange(VecTask):
         # print(
         #     "q_err", quat_dist(ee_actual_pose[0, 3:7], ee_target_pose[0, 3:7])
         # )
-        rew_buf, reset_buf = compute_reward(
+        progress_since_reached, rew_buf, reset_buf = compute_reward(
             self.reset_buf,
-            self.progress_buf,
+            torch.clamp(self.progress_buf - self.cfg["env"]["skip"], min=0),
+            self._progress_since_reached,
             ee_target_pose_truth,  # (num_envs, 7)
             ee_actual_pose,  # (num_envs, 7)
             knocked_off,
@@ -909,6 +936,9 @@ class FrankaToolChange(VecTask):
             self.cfg["env"]["concludeReward"],
             self.max_episode_length,
         )
+        self._progress_since_reached[env_mask] = progress_since_reached[
+            env_mask
+        ]
         self.rew_buf[env_mask] = rew_buf[env_mask]
         self.reset_buf[env_mask] = reset_buf[env_mask]
         # print(f'progress buf: {self.progress_buf[0]}, reset_buf: {self.reset_buf}')
@@ -926,3 +956,7 @@ class FrankaToolChange(VecTask):
             gymutil.draw_lines(
                 axes_geom, self.gym, self.viewer, env, tool_origin_location
             )
+
+        # reset must be done after reset_buf is set by compute_rewards
+        # and before the next step() call
+        self.reset_done()
