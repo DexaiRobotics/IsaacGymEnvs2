@@ -24,6 +24,7 @@ env:
   reachedThresholdNorm: 0.03  # 0.006
   attachReward: 100  # no penalty
   concludeReward: 40  # also penalty, so should be less than half of attachReward
+  penalize_after_reached: True
 
   disableRL: False
 

@@ -64,6 +64,7 @@ def compute_reward(
     attach_reward: float,
     conclude_reward: float,
     max_episode_length: int,
+    penalize_after_reached: bool,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     pos_err = torch.norm(
         ee_actual_pose[:, :3] - ee_target_pose_truth[:, :3], dim=-1
@@ -80,18 +81,27 @@ def compute_reward(
 
     dpose = torch.norm(torch.column_stack([pos_err, orn_err]), dim=-1)
     reached = dpose < reached_threshold_norm
+    attach_term = attach_reward * reached
+    rew_buf = dist_term + align_term + time_term + attach_term
     progress_since_reached += 1 * (reached | progress_since_reached).to(
         torch.bool
     )
     # print('dpose', float(dpose[0].cpu()), 'threshold', reached_threshold_norm, 'reached', bool(reached[0].cpu()), 'conclude', bool(conclude[0].cpu()))
-    conclude_term = conclude_reward * torch.where(
-        reached & (~conclude),
-        -progress_since_reached / 10.0,
-        (reached & conclude).to(torch.int64)
-        - (conclude != reached).to(torch.int64),
-    )
-    attach_term = attach_reward * reached
-    rew_buf = dist_term + align_term + time_term + conclude_term + attach_term
+    if penalize_after_reached:
+        # before reached, any conclude = True results in zero rewards
+        # after reached, increasing penalty
+        conclude_term = torch.where(
+            reached & (~conclude),
+            -conclude_reward * progress_since_reached / 10.0,
+            conclude_reward * (reached & conclude).to(torch.int64)
+            - rew_buf * (conclude != reached).to(torch.int64),
+        )
+    else:
+        conclude_term = conclude_reward * torch.where(
+            reached == conclude,
+            1, -1
+        )
+    rew_buf += conclude_term
     print(
         # f"dpose: {float(dpose[0])}, "
         f"reached: {bool(reached[0])}, "
@@ -935,6 +945,7 @@ class FrankaToolChange(VecTask):
             self.cfg["env"]["attachReward"],
             self.cfg["env"]["concludeReward"],
             self.max_episode_length,
+            penalize_after_reached=self.cfg['env']['penalize_after_reached']
         )
         self._progress_since_reached[env_mask] = progress_since_reached[
             env_mask
