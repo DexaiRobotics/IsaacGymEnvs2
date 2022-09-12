@@ -45,6 +45,26 @@ def random_tool_pose(pose, pos_noise_scale, rot_noise_scale):
     return result
 
 
+# @torch.jit.script
+def compute_external_wrench(J, M, tau_ext):
+    """Compute the dynamically consistent Jacobian inverse J̅.
+
+    J̅:=M⁻¹JᵀΛ
+    Λ:=(JM⁻¹Jᵀ)⁻¹
+    where M is the mass matrix.
+
+    In practice, we calculate M⁻¹Jᵀ as one term using lstsq, which is
+    always preferred for multiplying a matrix on the left by the pseudoinverse,
+    as it is faster and more numerically stable
+    than computing the pseudoinverse explicitly.
+    """
+    Minv_JT = torch.linalg.lstsq(M, J.transpose(1, 2)).solution  # (N, 7, 6)
+    Lambda = torch.linalg.pinv(J @ Minv_JT)  # (N, 6, 6)
+    Jbar = Minv_JT @ Lambda  # (N, 7, 6)
+    wrench = Jbar.transpose(1, 2) @ tau_ext.unsqueeze(-1)  # (N, 6, 1)
+    return wrench.squeeze(-1)  # (N, 6)
+
+
 # TODO: add torque penalty term
 @torch.jit.script
 def compute_reward(
@@ -98,8 +118,7 @@ def compute_reward(
         )
     else:
         conclude_term = conclude_reward * torch.where(
-            reached == conclude,
-            1, -1
+            reached == conclude, 1, -1
         )
     rew_buf += conclude_term
     print(
@@ -564,13 +583,12 @@ class FrankaToolChange(VecTask):
         # Controller type
         self._control_type = self.cfg["env"]["controlType"]
         # dimensions
-        # obs include: pose_err (7)
         # TODO: add external wrench or joint torques
         if self._control_type == "osc":
-            self.cfg["env"]["numObservations"] = 14  # wrench 6, dpos 7
+            self.cfg["env"]["numObservations"] = 13  # wrench 6, dpos 7
             self.cfg["env"]["numActions"] = 7  # dpose in 6D OS, bool 1
         elif self._control_type == "ik":
-            self.cfg["env"]["numObservations"] = 14
+            self.cfg["env"]["numObservations"] = 13
             self.cfg["env"]["numActions"] = 7  # dpose in 6D OS, bool 1
         elif self._control_type == "joint_torque":
             self.cfg["env"]["numObservations"] = 19
@@ -908,8 +926,15 @@ class FrankaToolChange(VecTask):
         ]
         # print(f"actual_pose: {actual_pose[0]}")
         # print(f"target_pose: {target_pose[0]}")
+        wrench = compute_external_wrench(
+            self._J_EE, self._M, self._dof_forces[:, -7:]
+        )
         self.obs_buf = torch.concat(
-            [ee_actual_pose - ee_target_pose, self._dof_forces[:, -7:]], dim=-1
+            [
+                ee_actual_pose - ee_target_pose,  # (N, 7), xyz + xyzw
+                wrench,  # (N, 6)
+            ],
+            dim=-1,
         )
         # compute reward for not only progress past skip
         # during skip, the conclude decision should be correct
@@ -945,7 +970,7 @@ class FrankaToolChange(VecTask):
             self.cfg["env"]["attachReward"],
             self.cfg["env"]["concludeReward"],
             self.max_episode_length,
-            penalize_after_reached=self.cfg['env']['penalize_after_reached']
+            penalize_after_reached=self.cfg["env"]["penalize_after_reached"],
         )
         self._progress_since_reached[env_mask] = progress_since_reached[
             env_mask
