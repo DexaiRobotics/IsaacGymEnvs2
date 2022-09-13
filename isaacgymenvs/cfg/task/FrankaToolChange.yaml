@@ -9,7 +9,7 @@ env:
   # numObservations: 32
   # numActions: 12
   envSpacing: 1.5
-  episodeLength: 192
+  episodeLength: 256
   enableDebugVis: False
   skip: 10  # let the tool settle
 

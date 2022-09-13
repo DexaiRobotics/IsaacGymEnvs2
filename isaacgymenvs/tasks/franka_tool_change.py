@@ -29,7 +29,7 @@ def quat_dist(q1, q2):
 def orientation_error(desired, current):
     cc = tu.quat_conjugate(current)
     q_r = tu.quat_mul(desired, cc)
-    return q_r[:, 0:3] * torch.sign(q_r[:, 3]).unsqueeze(-1)
+    return q_r[:, :3] * torch.sign(q_r[:, 3]).unsqueeze(-1)
 
 
 @torch.jit.script
@@ -45,7 +45,38 @@ def random_tool_pose(pose, pos_noise_scale, rot_noise_scale):
     return result
 
 
-# @torch.jit.script
+@torch.jit.script
+def transform_twist(transform, twist):
+    """Transform a twist action to another frame.
+
+    Twist is (..., 6) for linear and linear velocities, ordered as (v, omega)
+    consistent with wrench (force, moment)
+    The transformation is (..., 7) for xyz, xyzw, where we apply the quaternion
+    to achieve the rotation in lieu of the rotation matrix.
+    """
+    v = twist[..., :3]
+    omega = twist[..., -3:]
+    Romega = tu.quat_rotate(transform[..., -4:], omega)
+    tcrossRomega = transform[:, :3].cross(Romega, dim=-1)
+    Rv = tu.quat_rotate(transform[..., -4:], v)
+    # torchscript bug necessitates the .clone()
+    return torch.concat([(tcrossRomega + Rv).clone(), Romega], dim=-1)
+
+
+@torch.jit.script
+def compose_pose(pose1, pose2):
+    """Compose two poses and return pose 1 * pose 2.
+
+    If pose 1 is the reference frame, and pose 2 is w.r.t. pose 1,
+    return pose 2 in world frame, namely
+    pose_target_in_world = pose_tool_in_world * pose_target_in_tool
+    """
+    t1, q1 = pose1[:, :3], pose1[:, 3:7]
+    t2, q2 = pose2[:, :3], pose2[:, 3:7]
+    return torch.concat(tu.tf_combine(q1, t1, q2, t2)[::-1], dim=-1)
+
+
+@torch.jit.script
 def compute_external_wrench(J, M, tau_ext):
     """Compute the dynamically consistent Jacobian inverse J̅.
 
@@ -61,8 +92,8 @@ def compute_external_wrench(J, M, tau_ext):
     Minv_JT = torch.linalg.lstsq(M, J.transpose(1, 2)).solution  # (N, 7, 6)
     Lambda = torch.linalg.pinv(J @ Minv_JT)  # (N, 6, 6)
     Jbar = Minv_JT @ Lambda  # (N, 7, 6)
-    wrench = Jbar.transpose(1, 2) @ tau_ext.unsqueeze(-1)  # (N, 6, 1)
-    return wrench.squeeze(-1)  # (N, 6)
+    ext_wrench = Jbar.transpose(1, 2) @ tau_ext.unsqueeze(-1)  # (N, 6, 1)
+    return ext_wrench.squeeze(-1)  # (N, 6)
 
 
 # TODO: add torque penalty term
@@ -91,7 +122,7 @@ def compute_reward(
     )
     orn_err = torch.norm(
         orientation_error(
-            ee_actual_pose[:, 3:7], ee_target_pose_truth[:, 3:7]
+            ee_target_pose_truth[:, 3:7], ee_actual_pose[:, 3:7]
         ),
         dim=-1,
     )
@@ -347,11 +378,8 @@ class FrankaToolChange(VecTask):
             robot_location.p = gymapi.Vec3(noise[0], noise[1], 0)
             # nominal rotation from system model
             robot_location.r = gymapi.Quat(
-                *transform.Rotation.from_rotvec(
-                    (0, 0, np.pi / 2 + noise[2])
-                ).as_quat()
+                *tu.quat_from_euler_xyz(0, 0, np.pi / 2 + noise[2])
             )
-
             tool = self.cfg["tools"][i % len(self.cfg["tools"])]
             bin_name = tool["tool_id"][tool["tool_id"].find("hotel_pan_") :]
             tool_name = (
@@ -618,7 +646,7 @@ class FrankaToolChange(VecTask):
         self._acquire_state_tensors()
         self._relative_attach_pose = tu.to_torch(
             self.cfg["env"]["relativeAttachPose"], device=self.device
-        )
+        ).expand(self.num_envs, 7)
         self._initial_tool_pose = torch.nan * torch.ones(
             self.num_envs, 7, device=self.device, dtype=torch.float32
         )
@@ -817,9 +845,8 @@ class FrankaToolChange(VecTask):
     def pre_physics_step(self, actions):
         self.actions = actions.clone().to(self.device)
         # cobot action can be 6D or 7D depending on control type
-        cobot_action = self.actions[
-            :, :-1
-        ]  # conclude channel is used for rewards
+        # conclude channel is used for rewards
+        cobot_action = self.actions[:, :-1]
         cobot_action = (
             cobot_action * self._action_limit * self.cfg["env"]["actionScale"]
         )
@@ -835,19 +862,9 @@ class FrankaToolChange(VecTask):
             # compute observation by setting self.obs_buf
             env_mask = self.progress_buf >= self.cfg["env"]["skip"]
             if self.cfg["env"]["disableRL"]:
-                t1 = self._initial_tool_pose[:, :3]
-                q1 = self._initial_tool_pose[:, 3:7]
-                t2 = (
-                    self._relative_attach_pose[:3]
-                    .expand(self.num_envs, 3)
-                    .clone()
-                )
-                t2[~self._reached0, 2] -= 0.05  # intermediate waypoint
-                q2 = self._relative_attach_pose[3:7].expand(self.num_envs, 4)
-                target_q, target_t = tu.tf_combine(q1, t1, q2, t2)
-                target_pose = torch.concat(
-                    [target_t, target_q], dim=-1
-                )  # check (num_envs, 7)
+                relpose = self._relative_attach_pose.clone()
+                relpose[~self._reached0, 2] -= 0.05  # intermediate waypoint
+                target_pose = compose_pose(self._initial_tool_pose, relpose)
                 actual_pose = self._rigid_body_state[
                     :, self._ee_rigid_body_index, :7
                 ]
@@ -855,11 +872,17 @@ class FrankaToolChange(VecTask):
                 orn_err = orientation_error(
                     target_pose[:, 3:7], actual_pose[:, 3:7]
                 )
-                dpose = torch.cat([pos_err, orn_err], dim=-1)
-                self._reached0 |= torch.norm(dpose, dim=-1) <= 0.02
-                cobot_action = dpose  # overwrite cobot_action
+                dpose_in_world = torch.cat([pos_err, orn_err], dim=-1)
+                self._reached0 |= torch.norm(dpose_in_world, dim=-1) <= 0.02
+            else:
+                # RL policy output is dpose (or twist, 6-vector) in tool frame.
+                # Transform tool frame action output of the policy
+                # (per timestep, i.e. twist) into world frame
+                tool_to_world = self._initial_tool_pose.clone()
+                tool_to_world[:, :6] *= -1  # inverse transform
+                dpose_in_world = transform_twist(tool_to_world, cobot_action)
             self._pos_control[env_mask, -7:] += self._compute_ik_dq(
-                cobot_action
+                dpose_in_world  # dpose to dq conversion via IK in world frame
             )[env_mask]
         elif self._control_type == "joint_torques":
             self._torque_control[:, -7:] = cobot_action
@@ -879,7 +902,8 @@ class FrankaToolChange(VecTask):
         if self._last_timestamp:
             dt = current_timestamp - self._last_timestamp
             print(
-                f"{round(1 / dt):3d} FPS, time dilation scale: {dt / self.sim_params.dt:5.2f}",
+                f"{round(1 / dt):3d} FPS, "
+                f"time dilation scale: {dt / self.sim_params.dt:5.2f}",
                 end="\r",
             )
         self._last_timestamp = current_timestamp
@@ -894,45 +918,24 @@ class FrankaToolChange(VecTask):
         self._initial_tool_pose[env_mask] = self._rigid_body_state[
             env_mask, self._tool_rigid_body_index, :7
         ]
-
         # compute observation by setting self.obs_buf
-        t_world_tool_initial = self._initial_tool_pose[:, :3]
-        q_world_tool_initial = self._initial_tool_pose[:, 3:7]
-        t_world_tool_truth = self._rigid_body_state[
-            :, self._tool_rigid_body_index, :3
-        ]
-        q_world_tool_truth = self._rigid_body_state[
-            :, self._tool_rigid_body_index, 3:7
-        ]
-        t_tool_EE = self._relative_attach_pose[:3].expand(self.num_envs, 3)
-        q_tool_EE = self._relative_attach_pose[3:7].expand(self.num_envs, 4)
-        ee_target_pose = torch.concat(
-            tu.tf_combine(
-                q_world_tool_initial,
-                t_world_tool_initial,
-                q_tool_EE,
-                t_tool_EE,
-            )[::-1],
-            dim=-1,
-        )
-        ee_target_pose_truth = torch.concat(
-            tu.tf_combine(
-                q_world_tool_truth, t_world_tool_truth, q_tool_EE, t_tool_EE
-            )[::-1],
-            dim=-1,
-        )
-        ee_actual_pose = self._rigid_body_state[
-            :, self._ee_rigid_body_index, :7
-        ]
-        # print(f"actual_pose: {actual_pose[0]}")
-        # print(f"target_pose: {target_pose[0]}")
-        wrench = compute_external_wrench(
-            self._J_EE, self._M, self._dof_forces[:, -7:]
+        ee_target_pose_truth = compose_pose(
+            self._rigid_body_state[:, self._tool_rigid_body_index, :7],
+            self._relative_attach_pose,
+        )  # in world frame, compare with EE truth (self.rigid_body_state)
+        pose_world_in_tool = self._initial_tool_pose.clone()
+        pose_world_in_tool[:, :6] *= -1  # inverse transform
+        # pose_ee_in_tool = pose_world_in_tool * pose_ee_in_world
+        ee_relative_pose = compose_pose(
+            pose_world_in_tool,
+            self._rigid_body_state[:, self._ee_rigid_body_index, :7],
         )
         self.obs_buf = torch.concat(
             [
-                ee_actual_pose - ee_target_pose,  # (N, 7), xyz + xyzw
-                wrench,  # (N, 6)
+                ee_relative_pose - self._relative_attach_pose,  # (N, 7)
+                compute_external_wrench(
+                    self._J_EE, self._M, self._dof_forces[:, -7:]
+                ),  # (N, 6)
             ],
             dim=-1,
         )
@@ -958,7 +961,7 @@ class FrankaToolChange(VecTask):
             torch.clamp(self.progress_buf - self.cfg["env"]["skip"], min=0),
             self._progress_since_reached,
             ee_target_pose_truth,  # (num_envs, 7)
-            ee_actual_pose,  # (num_envs, 7)
+            self._rigid_body_state[:, self._ee_rigid_body_index, :7],
             knocked_off,
             conclude,
             self.cfg["env"]["distRewardScale"],
