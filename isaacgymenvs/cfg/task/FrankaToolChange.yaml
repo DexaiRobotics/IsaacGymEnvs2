@@ -11,27 +11,29 @@ env:
   envSpacing: 1.5
   episodeLength: 256
   enableDebugVis: False
-  skip: 10  # let the tool settle
+  skip: 15  # let the tool settle
 
   aggregateMode: 3
   
   distRewardScale: 50
   alignRewardScale: 50
+  waypointRewardScale: 50
   torquePenaltyScale: 0.01
   timePenaltyScale: 0.05
-  knockoffThresholdNorm: 0.15
+  knockoffThresholdNorm: 0.2
   knockoffPenalty: 100
-  reachedThresholdNorm: 0.03  # 0.006
+  reachedWaypointThresholdNorm: 0.03
+  reachedThresholdNorm: 0.02  # 0.006
   attachReward: 100  # no penalty
-  concludeReward: 40  # also penalty, so should be less than half of attachReward
+  concludeReward: 50  # also penalty, so should be less than half of attachReward
   penalize_after_reached: True
 
   disableRL: False
 
   # in tool frame, xyz
-  relativeAttachPose: [0, -0.00306, -0.08245, 0, 0, 0, 1]  # -0.08245 nominal z
+  # relativeAttachPose: [0, -0.00306, -0.08245, 0, -0.05, 0, 0.99875]  # -0.08245 nominal z
 
-  # relativeAttachPose: [-0.2, -0.1, -0.2, 0, 0, 0, 1]
+  relativeAttachPose: [0, -0.00306, -0.08245, 0, 0, 0, 1]
 
   robotBasePositionNoise: 0.002
   robotBaseRotationNoise: 0.001
