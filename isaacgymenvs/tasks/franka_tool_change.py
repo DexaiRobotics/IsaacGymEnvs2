@@ -133,16 +133,25 @@ def compute_reward(
     penalize_after_reached: bool,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     pose_err_truth_norm = torch.norm(pose_err_truth, dim=-1)
-    # pose_term = pose_reward_scale * (1 - torch.tanh(10 * pose_err_truth_norm))
-    pose_term = pose_reward_scale / (
-        1 + torch.exp(200 * pose_err_truth_norm - 8)
+    pose_term = torch.where(
+        reached_waypt,
+        pose_reward_scale / (  # sharp falloff ~0.05 to minimise initial reward
+            1 + torch.exp(200 * pose_err_truth_norm - 8)
+        ),
+        pose_reward_scale * (1 - torch.tanh(10 * pose_err_truth_norm))
     )
-    # axial bound in z before reaching waypt, keep on negative side
-    pose_term[~reached_waypt] *= torch.where(
-        pose_err_truth[~reached_waypt, 2] < 0, 1, -1
+
+    # axial bound in z before reaching waypt, keep EE on negative side
+    pose_term[~reached_waypt & (pose_err_truth[:, 2] > 0)] *= -1e10
+    pose_term = torch.where(
+        reached_waypt & (pose_err_truth[:, 2] > -0.11),  # close z
+        # for close z, reward +z push
+        pose_term * (1.5 + 5*pose_err_truth[:, 2]),
+        # for far z, radial falloff, to keep EE on axis for farther z
+        pose_term / (1 + 100 * torch.norm(pose_err_truth[:, :2], dim=-1))
+
     )
-    # radial falloff, to keep EE on axis
-    pose_term /= 1 + 100 * torch.norm(pose_err_truth[:, :2], dim=-1)
+
     # time_term = -time_penalty_scale * progress_since_skip
     waypt_term = waypoint_reward_scale * reached_waypt
     attach_term = attach_reward * reached
@@ -150,33 +159,30 @@ def compute_reward(
     progress_since_reached += 1 * (reached | progress_since_reached).to(
         torch.bool
     )
+
+    conclude_term = conclude_reward * (reached & conclude).to(torch.int64) - rew_buf * (conclude != reached).to(torch.int64)
     if penalize_after_reached:
         # before reached, any conclude = True results in zero rewards
         # after reached, increasing penalty
         conclude_term = torch.where(
             reached & (~conclude),
             -conclude_reward * progress_since_reached / 10.0,
-            conclude_reward * (reached & conclude).to(torch.int64)
-            - rew_buf * (conclude != reached).to(torch.int64),
+            conclude_term
         )
-    else:
-        conclude_term = conclude_reward * torch.where(
-            reached == conclude, 1, -1
-        )
+        
     rew_buf += conclude_term
-    # print(
-    #     # f"pose_err_truth_norm: {float(pose_err_truth_norm[0])}, "
-    #     f"reached_waypt: {bool(reached_waypt[0])}, "
-    #     f"reached: {bool(reached[0])}, "
-    #     f"conclude: {bool(conclude[0])}, "
-    #     # f"dist_term: {float(dist_term[0])}, "
-    #     # f"align_term: {float(align_term[0])}, "
-    #     # f"time_term: {float(time_term[0])}, "
-    #     f"attach_term: {float(attach_term[0])}, "
-    #     f"conclude_term: {float(conclude_term[0])}, "
-    #     f"reward: {float(rew_buf[0])}, "
-    #     # f"knocked_off: {bool(knocked_off[0])}"
-    # )
+    print(
+        f"pose_err_truth_norm: {float(pose_err_truth_norm[0])}, "
+        f"reached_waypt: {bool(reached_waypt[0])}, "
+        f"reached: {bool(reached[0])}, "
+        f"conclude: {bool(conclude[0])}, "
+        f"pose_term: {float(pose_term[0])}, "
+        # f"time_term: {float(time_term[0])}, "
+        f"attach_term: {float(attach_term[0])}, "
+        f"conclude_term: {float(conclude_term[0])}, "
+        f"reward: {float(rew_buf[0])}, "
+        # f"knocked_off: {bool(knocked_off[0])}"
+    )
     rew_buf[knocked_off] = -knockoff_penalty
     reset_buf = torch.where(
         (progress_since_skip >= max_episode_length - 1)  # timeout
@@ -624,15 +630,14 @@ class FrankaToolChange(VecTask):
         # Controller type
         self._control_type = self.cfg["env"]["controlType"]
         # dimensions
-        # TODO: add external wrench or joint torques
         if self._control_type == "osc":
-            self.cfg["env"]["numObservations"] = 13  # TODO: implement this
+            self.cfg["env"]["numObservations"] = 13  # not fully implemented
             self.cfg["env"]["numActions"] = 7  # dpose in 6D OS, bool 1
         elif self._control_type == "ik":
-            self.cfg["env"]["numObservations"] = 13
+            self.cfg["env"]["numObservations"] = 12  # 6 dpose, 6 ext wrench
             self.cfg["env"]["numActions"] = 7  # dpose in 6D OS, bool 1
         elif self._control_type == "joint_torque":
-            self.cfg["env"]["numObservations"] = 19
+            self.cfg["env"]["numObservations"] = 19  # not fully implemented
             self.cfg["env"]["numActions"] = 8  # joint torques 7, bool 1
         else:
             raise ValueError(f"Unsupported control type: {self._control_type}")
@@ -920,12 +925,12 @@ class FrankaToolChange(VecTask):
         current_timestamp = time.time()
         if self._last_timestamp:
             dt = current_timestamp - self._last_timestamp
-            print(
-                f"progress_buf[0]: {self.progress_buf[0].item():>3d}, "
-                f"{round(1 / dt):>3d} FPS, "
-                f"time dilation scale: {dt / self.sim_params.dt:5.2f}",
-                end="\r",
-            )
+            # print(
+            #     f"progress_buf[0]: {self.progress_buf[0].item():>3d}, "
+            #     f"{round(1 / dt):>3d} FPS, "
+            #     f"time dilation scale: {dt / self.sim_params.dt:5.2f}",
+            #     end="\r",
+            # )
         self._last_timestamp = current_timestamp
         self._refresh_tensor_buffer()
 
@@ -946,7 +951,7 @@ class FrankaToolChange(VecTask):
         )
         self.obs_buf = torch.concat(
             [
-                ee_relative_pose,  # (N, 7)
+                get_dpose(ee_relative_pose, self._relative_attach_pose),  # (N, 6)
                 compute_external_wrench(
                     self._J_EE, self._M, self._dof_forces[:, -7:]
                 ),  # (N, 6)
