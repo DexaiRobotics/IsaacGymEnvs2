@@ -49,23 +49,23 @@ params:
     gamma: 0.99
     tau: 0.95
     learning_rate: 5e-4
-    lr_schedule: adaptive
+    lr_schedule: fixed
     schedule_type: standard
     kl_threshold: 0.008
     score_to_win: 40000
     max_epochs: ${resolve_default:10000,${....max_iterations}}
-    save_best_after: 200
-    save_frequency: 200
+    save_best_after: 100
+    save_frequency: 100
     print_stats: True
     grad_norm: 1.0
     entropy_coef: 0.0
     truncate_grads: True
     e_clip: 0.2
     horizon_length: 32  # 32
-    minibatch_size: 512  # 8192
+    minibatch_size: 1024  # 8192
     mini_epochs: 8
     critic_coef: 4
     clip_value: True
     seq_len: 4
     bounds_loss_coef: 0.0001
-    skip: 10 # let the tool settle
+    skip: 20 # let the tool settle

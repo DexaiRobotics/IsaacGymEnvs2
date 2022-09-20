@@ -9,9 +9,9 @@ env:
   # numObservations: 32
   # numActions: 12
   envSpacing: 1.5
-  episodeLength: 256
+  episodeLength: 384
   enableDebugVis: False
-  skip: 15  # let the tool settle
+  skip: 20  # let the tool settle
 
   aggregateMode: 3
   
@@ -22,7 +22,7 @@ env:
   timePenaltyScale: 0.05
   knockoffThresholdNorm: 0.2
   knockoffPenalty: 100
-  reachedWaypointThresholdNorm: 0.03
+  reachedWaypointThresholdNorm: 0.02
   reachedThresholdNorm: 0.02  # 0.006
   attachReward: 100  # no penalty
   concludeReward: 50  # also penalty, so should be less than half of attachReward

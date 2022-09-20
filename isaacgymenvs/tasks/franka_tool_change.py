@@ -9,7 +9,8 @@ import isaacgym.torch_utils as tu
 from isaacgymenvs.tasks.base.vec_task import VecTask
 
 import torch
-from scipy.spatial import transform
+
+# from scipy.spatial import transform
 
 torch.set_printoptions(precision=3, sci_mode=False)
 
@@ -29,7 +30,7 @@ def quat_dist(q1, q2):
 def orientation_error(actual, target):
     cc = tu.quat_conjugate(target)
     q_r = tu.quat_mul(actual, cc)
-    return q_r[:, :3] * torch.sign(q_r[:, 3]).unsqueeze(-1)
+    return q_r[..., :3] * torch.sign(q_r[..., 3]).unsqueeze(-1)
 
 
 @torch.jit.script
@@ -50,6 +51,7 @@ def random_tool_pose(pose, pos_noise_scale, rot_noise_scale):
     result[:, :3] += pos_noise_scale * (2 * torch.rand_like(pose[:, :3]) - 1)
     result[:, 4:7] += rot_noise_scale * (2 * torch.rand_like(pose[:, 4:7]) - 1)
     return result
+
 
 @torch.jit.script
 def inverse_transform(transform):
@@ -116,7 +118,7 @@ def compute_reward(
     reset_buf: torch.Tensor,
     progress_since_skip: torch.Tensor,  # substracted by skip already
     progress_since_reached: torch.Tensor,
-    pose_err_truth_norm: torch.Tensor,
+    pose_err_truth: torch.Tensor,
     knocked_off: torch.Tensor,
     reached_waypt: torch.Tensor,
     reached: torch.Tensor,
@@ -130,7 +132,17 @@ def compute_reward(
     max_episode_length: int,
     penalize_after_reached: bool,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    pose_term = pose_reward_scale * (1 - torch.tanh(10 * pose_err_truth_norm))
+    pose_err_truth_norm = torch.norm(pose_err_truth, dim=-1)
+    # pose_term = pose_reward_scale * (1 - torch.tanh(10 * pose_err_truth_norm))
+    pose_term = pose_reward_scale / (
+        1 + torch.exp(200 * pose_err_truth_norm - 8)
+    )
+    # axial bound in z before reaching waypt, keep on negative side
+    pose_term[~reached_waypt] *= torch.where(
+        pose_err_truth[~reached_waypt, 2] < 0, 1, -1
+    )
+    # radial falloff, to keep EE on axis
+    pose_term /= 1 + 100 * torch.norm(pose_err_truth[:, :2], dim=-1)
     # time_term = -time_penalty_scale * progress_since_skip
     waypt_term = waypoint_reward_scale * reached_waypt
     attach_term = attach_reward * reached
@@ -163,7 +175,6 @@ def compute_reward(
     #     f"attach_term: {float(attach_term[0])}, "
     #     f"conclude_term: {float(conclude_term[0])}, "
     #     f"reward: {float(rew_buf[0])}, "
-    #     f"pose_err_truth_norm: {float(pose_err_truth_norm[0])}, "
     #     # f"knocked_off: {bool(knocked_off[0])}"
     # )
     rew_buf[knocked_off] = -knockoff_penalty
@@ -660,7 +671,9 @@ class FrankaToolChange(VecTask):
         self._waypt_offset = torch.tensor(
             [0, 0, -0.05, 0, 0, 0, 0], device=self.device, dtype=torch.float32
         )
-        self._relative_target_pose = self._relative_attach_pose + self._waypt_offset
+        self._relative_target_pose = (
+            self._relative_attach_pose + self._waypt_offset
+        )
         self._initial_tool_pose = torch.nan * torch.ones(
             self.num_envs, 7, device=self.device, dtype=torch.float32
         )
@@ -766,7 +779,8 @@ class FrankaToolChange(VecTask):
         self.progress_buf[env_ids] = 0
         self._reached_waypt[env_ids] = False
         self._relative_target_pose[env_ids] = (
-            self._relative_attach_pose[env_ids] + self._waypt_offset)
+            self._relative_attach_pose[env_ids] + self._waypt_offset
+        )
         self._progress_since_reached[env_ids] = 0
         self.reset_buf[env_ids] = 0
 
@@ -789,7 +803,6 @@ class FrankaToolChange(VecTask):
             gymtorch.unwrap_tensor(robot_actor_indices),
             len(robot_actor_indices),
         )
-
 
     def _refresh_tensor_buffer(self):
         self.gym.refresh_actor_root_state_tensor(self.sim)
@@ -865,10 +878,8 @@ class FrankaToolChange(VecTask):
         self._pos_control[:] = self._dof_state[..., 0]
         # intermediate waypt
         dpose_in_world = -get_dpose(  # will use to set action command
-            self._rigid_body_state[
-                    :, self._ee_rigid_body_index, :7
-                ],
-            compose_pose(self._initial_tool_pose, self._relative_target_pose)
+            self._rigid_body_state[:, self._ee_rigid_body_index, :7],
+            compose_pose(self._initial_tool_pose, self._relative_target_pose),
         )
         if self._control_type == "osc":
             self._torque_control[:, -7:] = self._compute_osc_torques(
@@ -884,8 +895,8 @@ class FrankaToolChange(VecTask):
                 # Transform tool frame action output of the policy
                 # (per timestep, i.e. twist) into world frame
                 dpose_in_world = transform_twist(
-                    inverse_transform(self._initial_tool_pose),
-                    cobot_action)
+                    inverse_transform(self._initial_tool_pose), cobot_action
+                )
                 # print('cobot_action:', cobot_action[0, :3])
             env_mask = self.progress_buf >= self.cfg["env"]["skip"]
             self._pos_control[env_mask, -7:] += self._compute_ik_dq(
@@ -905,10 +916,6 @@ class FrankaToolChange(VecTask):
     def post_physics_step(self):
         """Reset envs for reset buffer. Compute observations and rewards."""
         self.progress_buf += 1
-        # reset must be done in the beginning
-        # reset_buf will then be set by compute_rewards and used by
-        # upper-level stack to determine game rewards
-        self.reset_done()
 
         current_timestamp = time.time()
         if self._last_timestamp:
@@ -961,47 +968,55 @@ class FrankaToolChange(VecTask):
         conclude = self.actions[:, -1] > 0
 
         # determine if reached waypt, use |= to update
-        self._reached_waypt |= torch.norm(
-            get_dpose(
-                ee_relative_pose,
-                self._relative_target_pose
-            ), dim=-1
-        ) <= self.cfg['env']['reachedWaypointThresholdNorm']
+        self._reached_waypt |= (
+            torch.norm(
+                get_dpose(ee_relative_pose, self._relative_target_pose), dim=-1
+            )
+            <= self.cfg["env"]["reachedWaypointThresholdNorm"]
+        )
+        # update relative target pose for those that just reached the waypt
+        self._relative_target_pose[
+            self._reached_waypt
+        ] = self._relative_attach_pose[self._reached_waypt]
 
         # determine if reached attach position (success)
-        target_attach_pose_truth = compose_pose(
-            self._rigid_body_state[:, self._tool_rigid_body_index, :7],
-            self._relative_attach_pose,
-        )  # in world frame, compare with EE truth (self.rigid_body_state)
-        attach_pose_err_truth = get_dpose(
+        ee_relative_pose = compose_pose(
+            inverse_transform(
+                self._rigid_body_state[:, self._tool_rigid_body_index, :7]
+            ),
             self._rigid_body_state[:, self._ee_rigid_body_index, :7],
-            target_attach_pose_truth
-        )  # (N, 6)
-        attach_pose_err_truth_norm = torch.norm(attach_pose_err_truth, dim=-1)
-        reached = (
-            self._reached_waypt
-            & (attach_pose_err_truth_norm < self.cfg["env"]["reachedThresholdNorm"])
+        )
+        pose_err_truth = get_dpose(
+            ee_relative_pose,
+            self._relative_target_pose,
+        )
+        # print('pose_err_truth', pose_err_truth[0, :3], '_relative_attach_pose', self._relative_attach_pose[0, :3])
+        attach_pose_err_truth = get_dpose(
+            ee_relative_pose, self._relative_attach_pose
+        )
+        reached = self._reached_waypt & (
+            torch.norm(attach_pose_err_truth, dim=-1)
+            < self.cfg["env"]["reachedThresholdNorm"]
         )
 
+        # reset must be called before rewards but after determining state
+        # reset_buf will then be set by compute_rewards and used by
+        # upper-level stack to determine game rewards
+        # also need to be before next action taken based on next observation
+        self.reset_done()
+
         # calculate reward and reset
-        pose_err_truth = get_dpose(
-            self._rigid_body_state[:, self._ee_rigid_body_index, :7],
-            compose_pose(
-                self._rigid_body_state[:, self._tool_rigid_body_index, :7],
-                self._relative_target_pose,
-            )
-        )
         progress_since_reached, rew_buf, reset_buf = compute_reward(
             self.reset_buf,
             torch.clamp(self.progress_buf - self.cfg["env"]["skip"], min=0),
             self._progress_since_reached,
-            torch.norm(pose_err_truth, dim=-1),
+            pose_err_truth,
             knocked_off,
             self._reached_waypt,
             reached,
             conclude,
-            self.cfg["env"]["distRewardScale"],
-            self.cfg['env']['waypointRewardScale'],
+            self.cfg["env"]["distRewardScale"],  # both positional & angular
+            self.cfg["env"]["waypointRewardScale"],
             self.cfg["env"]["torquePenaltyScale"],
             self.cfg["env"]["knockoffPenalty"],
             self.cfg["env"]["attachReward"],
@@ -1031,10 +1046,13 @@ class FrankaToolChange(VecTask):
 
         # update relative target pose in tool frame,
         # only after rewarding this step and resetting
-
         # update relative_target_pose after updating _reached_waypt mask
         self._relative_target_pose = self._relative_attach_pose.clone()
         self._relative_target_pose[~self._reached_waypt] += self._waypt_offset
         # print("ee_relative_pose:", ee_relative_pose[0])
+        # dpose = get_dpose(ee_relative_pose[0], self._relative_target_pose[0])
         # print("_relative_target_pose:", self._relative_target_pose[0, :3],
-        #       "delta:", ee_relative_pose[0] - self._relative_target_pose[0])
+        #       "delta:", torch.norm(dpose))
+        print(
+            f"obs_buf: {self.obs_buf[0, :3].cpu()}, reward: {self.rew_buf[0].item():.1f}"
+        )
