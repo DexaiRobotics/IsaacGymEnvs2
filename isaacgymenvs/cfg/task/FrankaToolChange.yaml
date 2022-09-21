@@ -15,18 +15,18 @@ env:
 
   aggregateMode: 3
   
-  distRewardScale: 50
-  alignRewardScale: 50
-  waypointRewardScale: 50
+  distRewardScale: 10
+  alignRewardScale: 10
+  waypointRewardScale: 6
   torquePenaltyScale: 0.01
   timePenaltyScale: 0.05
   knockoffThresholdNorm: 0.2
-  knockoffPenalty: 100
+  knockoffPenalty: 20
   reachedWaypointThresholdNorm: 0.02
   reachedThresholdNorm: 0.02  # 0.006
-  attachReward: 100  # no penalty
-  concludeReward: 50  # also penalty, so should be less than half of attachReward
-  penalize_after_reached: True
+  attachReward: 10  # no penalty
+  concludeReward: 10  # also penalty, so should be less than half of attachReward
+  penalize_after_reached: False
 
   disableRL: False
 

@@ -48,10 +48,10 @@ params:
     normalize_advantage: True
     gamma: 0.99
     tau: 0.95
-    learning_rate: 5e-4
-    lr_schedule: fixed
+    learning_rate: 1e-3
+    lr_schedule: None
     schedule_type: standard
-    kl_threshold: 0.008
+    kl_threshold: 0.016
     score_to_win: 40000
     max_epochs: ${resolve_default:10000,${....max_iterations}}
     save_best_after: 100

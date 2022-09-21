@@ -136,20 +136,20 @@ def compute_reward(
     pose_term = torch.where(
         reached_waypt,
         pose_reward_scale / (  # sharp falloff ~0.05 to minimise initial reward
-            1 + torch.exp(200 * pose_err_truth_norm - 8)
+            1 + torch.exp(180 * pose_err_truth_norm - 8)
         ),
         pose_reward_scale * (1 - torch.tanh(10 * pose_err_truth_norm))
     )
 
-    # axial bound in z before reaching waypt, keep EE on negative side
-    pose_term[~reached_waypt & (pose_err_truth[:, 2] > 0)] *= -1e10
+    # axial epsilon-barrier in z before reaching waypt, keep on negative side
+    pose_term[~reached_waypt & (pose_err_truth[:, 2] > 0.03)] *= -1
+    r = torch.norm(pose_err_truth[:, :2], dim=-1)
     pose_term = torch.where(
-        reached_waypt & (pose_err_truth[:, 2] > -0.11),  # close z
-        # for close z, reward +z push
-        pose_term * (1.5 + 5*pose_err_truth[:, 2]),
+        reached_waypt & (pose_err_truth[:, 2] > -0.03),  # close z
+        # for close z, no radial falloff, reward +z push
+        pose_term * torch.cos(20 * r) + 300 * (pose_err_truth[:, 2] + 0.03),
         # for far z, radial falloff, to keep EE on axis for farther z
-        pose_term / (1 + 100 * torch.norm(pose_err_truth[:, :2], dim=-1))
-
+        pose_term / (1 + 10 * r)
     )
 
     # time_term = -time_penalty_scale * progress_since_skip
@@ -160,7 +160,9 @@ def compute_reward(
         torch.bool
     )
 
-    conclude_term = conclude_reward * (reached & conclude).to(torch.int64) - rew_buf * (conclude != reached).to(torch.int64)
+    # ignore what it predicts for conclude unless it's reached destination
+    # - rew_buf * (conclude != reached).to(torch.int64)
+    conclude_term = conclude_reward * (reached & conclude).to(torch.int64)  
     if penalize_after_reached:
         # before reached, any conclude = True results in zero rewards
         # after reached, increasing penalty
@@ -172,14 +174,15 @@ def compute_reward(
         
     rew_buf += conclude_term
     print(
-        f"pose_err_truth_norm: {float(pose_err_truth_norm[0])}, "
+        f"pose_err_truth_z: {float(pose_err_truth[0, 2])}, "
         f"reached_waypt: {bool(reached_waypt[0])}, "
         f"reached: {bool(reached[0])}, "
         f"conclude: {bool(conclude[0])}, "
         f"pose_term: {float(pose_term[0])}, "
+        f"waypt_term: {float(waypt_term[0])}, "
         # f"time_term: {float(time_term[0])}, "
         f"attach_term: {float(attach_term[0])}, "
-        f"conclude_term: {float(conclude_term[0])}, "
+        # f"conclude_term: {float(conclude_term[0])}, "
         f"reward: {float(rew_buf[0])}, "
         # f"knocked_off: {bool(knocked_off[0])}"
     )
@@ -1058,6 +1061,6 @@ class FrankaToolChange(VecTask):
         # dpose = get_dpose(ee_relative_pose[0], self._relative_target_pose[0])
         # print("_relative_target_pose:", self._relative_target_pose[0, :3],
         #       "delta:", torch.norm(dpose))
-        print(
-            f"obs_buf: {self.obs_buf[0, :3].cpu()}, reward: {self.rew_buf[0].item():.1f}"
-        )
+        # print(
+        #     f"obs_buf: {self.obs_buf[0, :3].cpu()}, reward: {self.rew_buf[0].item():.2f}"
+        # )
