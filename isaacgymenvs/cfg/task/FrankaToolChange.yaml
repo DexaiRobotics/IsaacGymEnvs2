@@ -23,9 +23,9 @@ env:
   knockoffThresholdNorm: 0.2
   knockoffPenalty: 20
   reachedWaypointThresholdNorm: 0.02
-  reachedThresholdNorm: 0.02  # 0.006
+  reachedThresholdNorm: 0.04  # because of a nontrivial acceptance cone
   attachReward: 10  # no penalty
-  concludeReward: 10  # also penalty, so should be less than half of attachReward
+  concludeReward: 30  # also penalty, so should be less than half of attachReward
   penalize_after_reached: False
 
   disableRL: False

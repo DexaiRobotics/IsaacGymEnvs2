@@ -147,7 +147,7 @@ def compute_reward(
     pose_term = torch.where(
         reached_waypt & (pose_err_truth[:, 2] > -0.03),  # close z
         # for close z, no radial falloff, reward +z push
-        pose_term * torch.cos(20 * r) + 300 * (pose_err_truth[:, 2] + 0.03),
+        pose_term * torch.cos(20 * r) + 300 * (pose_err_truth[:, 2] + 0.03) + 0.03/(0.003 - pose_err_truth[:, 2]),
         # for far z, radial falloff, to keep EE on axis for farther z
         pose_term / (1 + 10 * r)
     )
@@ -173,25 +173,26 @@ def compute_reward(
         )
         
     rew_buf += conclude_term
-    print(
-        f"pose_err_truth_z: {float(pose_err_truth[0, 2])}, "
-        f"reached_waypt: {bool(reached_waypt[0])}, "
-        f"reached: {bool(reached[0])}, "
-        f"conclude: {bool(conclude[0])}, "
-        f"pose_term: {float(pose_term[0])}, "
-        f"waypt_term: {float(waypt_term[0])}, "
-        # f"time_term: {float(time_term[0])}, "
-        f"attach_term: {float(attach_term[0])}, "
-        # f"conclude_term: {float(conclude_term[0])}, "
-        f"reward: {float(rew_buf[0])}, "
-        # f"knocked_off: {bool(knocked_off[0])}"
-    )
+    # print(
+    #     f"pose_err_truth_z: {float(pose_err_truth[0, 2])}, "
+    #     f"reached_waypt: {bool(reached_waypt[0])}, "
+    #     f"reached: {bool(reached[0])}, "
+    #     f"conclude: {bool(conclude[0])}, "
+    #     f"pose_term: {float(pose_term[0])}, "
+    #     # f"waypt_term: {float(waypt_term[0])}, "
+    #     # f"time_term: {float(time_term[0])}, "
+    #     f"attach_term: {float(attach_term[0])}, "
+    #     # f"conclude_term: {float(conclude_term[0])}, "
+    #     f"reward: {float(rew_buf[0])}, "
+    #     # f"knocked_off: {bool(knocked_off[0])}"
+    # )
     rew_buf[knocked_off] = -knockoff_penalty
     reset_buf = torch.where(
         (progress_since_skip >= max_episode_length - 1)  # timeout
         | (pose_err_truth_norm > 0.25)  # deviated too far
-        | ((reached > 0) & (conclude > 0))  # reached attach pose and concluded
-        | (knocked_off > 0)  # knocked off tool
+        | reached
+        | (reached & conclude)  # reached attach pose and concluded
+        | (knocked_off)  # knocked off tool
         | (rew_buf < 0),  # penalised long enough
         1,
         reset_buf,
@@ -928,12 +929,12 @@ class FrankaToolChange(VecTask):
         current_timestamp = time.time()
         if self._last_timestamp:
             dt = current_timestamp - self._last_timestamp
-            # print(
-            #     f"progress_buf[0]: {self.progress_buf[0].item():>3d}, "
-            #     f"{round(1 / dt):>3d} FPS, "
-            #     f"time dilation scale: {dt / self.sim_params.dt:5.2f}",
-            #     end="\r",
-            # )
+            print(
+                f"progress_buf[0]: {self.progress_buf[0].item():>3d}, "
+                f"{round(1 / dt):>3d} FPS, "
+                f"time dilation scale: {dt / self.sim_params.dt:5.2f}",
+                end="\r",
+            )
         self._last_timestamp = current_timestamp
         self._refresh_tensor_buffer()
 
@@ -1002,16 +1003,17 @@ class FrankaToolChange(VecTask):
         attach_pose_err_truth = get_dpose(
             ee_relative_pose, self._relative_attach_pose
         )
-        reached = self._reached_waypt & (
+        reached_waypt = self._reached_waypt.clone()
+        reached = reached_waypt & (
             torch.norm(attach_pose_err_truth, dim=-1)
             < self.cfg["env"]["reachedThresholdNorm"]
-        )
+        ) & (pose_err_truth[:, 2] > -0.001)
 
         # reset must be called before rewards but after determining state
         # reset_buf will then be set by compute_rewards and used by
         # upper-level stack to determine game rewards
         # also need to be before next action taken based on next observation
-        self.reset_done()
+        self.reset_done()  # modifies self._reached_waypt
 
         # calculate reward and reset
         progress_since_reached, rew_buf, reset_buf = compute_reward(
@@ -1020,7 +1022,7 @@ class FrankaToolChange(VecTask):
             self._progress_since_reached,
             pose_err_truth,
             knocked_off,
-            self._reached_waypt,
+            reached_waypt,  # use values before reset which hasn't taken effect
             reached,
             conclude,
             self.cfg["env"]["distRewardScale"],  # both positional & angular
