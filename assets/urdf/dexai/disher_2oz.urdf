@@ -1,0 +1,47 @@
+<?xml version="1.0" ?>
+<robot name="disher_2oz">
+  <link name="disher_2oz">
+    <visual>
+      <geometry>
+        <mesh filename="package://dexai/meshes/disher_2oz_simple.obj"/>
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="package://dexai/meshes/disher_2oz_simple.obj"/>
+      </geometry>
+      <sdf resolution="512"/>
+    </collision>
+    <inertial>
+      <mass value="0.473"/>
+      <origin rpy="0 0 0" xyz="0.002 0.0001 0.0668"/>
+      <inertia ixx="0.00179" ixy="0.0" ixz="0.00005" iyy="0.00185" iyz="0.0" izz="0.00012"/>
+    </inertial>
+  </link>
+  <!-- <link name="disher_2oz_face"/>
+  <joint name="disher_2oz_to_disher_2oz_face" type="fixed">
+    <parent link="disher_2oz"/>
+    <child link="disher_2oz_face"/>
+    <origin rpy="0 -1.5707963267948966 3.141592653589793" xyz="0.0256 0 0.221"/>
+  </joint>
+  <link name="disher_2oz_tip">
+    <collision>
+      <origin xyz="0.0 0.0 0.0"/>
+      <geometry>
+        <sphere radius="0.0025"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="disher_2oz_to_disher_2oz_tip" type="fixed">
+    <parent link="disher_2oz"/>
+    <child link="disher_2oz_tip"/>
+    <origin rpy="0 -1.5707963267948966 3.141592653589793" xyz="0.0256 0 0.2501"/>
+  </joint>
+  <link name="disher_2oz_neck"/>
+  <joint name="disher_2oz_to_disher_2oz_neck" type="fixed">
+    <parent link="disher_2oz"/>
+    <child link="disher_2oz_neck"/>
+    <origin rpy="0 -1.5707963267948966 3.141592653589793" xyz="0.0256 0 0.1918"/>
+  </joint> -->
+</robot>
+

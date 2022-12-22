@@ -1,0 +1,129 @@
+<?xml version="1.0" ?>
+<robot name="alfred_workstation">
+
+  <link name="base_link"/>
+
+  <link name="low_boy_3pan_with_hotel_pans"/>
+  <joint name="base_link_to_low_boy_3pan_with_hotel_pans" type="fixed">
+    <parent link="base_link"/>
+    <child link="low_boy_3pan_with_hotel_pans"/>
+    <origin rpy="0 0 0" xyz="0 -0.04134 -0.0862"/>
+  </joint>
+  <link name="low_boy_3pan_east">
+    <visual>
+      <geometry>
+        <mesh filename="package://dexai/meshes/low_boy_3pan.obj"/>
+      </geometry>
+      <material name="white">
+        <color rgba="1 1 1 1"/>
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="package://dexai/meshes/low_boy_3pan.obj"/>
+      </geometry>
+      <sdf resolution="1"/>
+    </collision>
+  </link>
+  <joint name="low_boy_3pan_with_hotel_pans_to_low_boy_3pan_east" type="fixed">
+    <parent link="low_boy_3pan_with_hotel_pans"/>
+    <child link="low_boy_3pan_east"/>
+    <origin rpy="0 0 0" xyz="0.4974 0 0"/>
+  </joint>
+
+  <!-- <link name="low_boy_3pan_west">
+    <visual>
+      <geometry>
+        <mesh filename="package://dexai/meshes/low_boy_3pan.obj"/>
+      </geometry>
+      <material name="white">
+        <color rgba="1 1 1 1"/>
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="package://dexai/meshes/low_boy_3pan.obj"/>
+      </geometry>
+      <sdf resolution="128"/>
+    </collision>
+  </link>
+  <joint name="low_boy_3pan_with_hotel_pans_to_low_boy_3pan_west" type="fixed">
+    <parent link="low_boy_3pan_with_hotel_pans"/>
+    <child link="low_boy_3pan_west"/>
+    <origin rpy="0 0 3.141592653589793" xyz="-0.4974 0 0"/>
+  </joint> -->
+
+  <link name="vine_3rd_pans">
+    <visual>
+      <geometry>
+        <mesh filename="package://dexai/meshes/vine_3rd_pans.obj"/>
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="package://dexai/meshes/vine_3rd_pans.obj"/>
+      </geometry>
+      <!-- <sdf resolution="512"/> -->
+    </collision>
+  </link>
+
+  <joint name="base_link_to_vine_3rd_pans" type="fixed">
+    <parent link="base_link"/>
+    <child link="vine_3rd_pans"/>
+    <origin rpy="0 0 0" xyz="0.49605 0.15016 -0.0472"/>
+  </joint>
+
+  <link name="vine_6th_pans_east">
+    <visual>
+      <geometry>
+        <mesh filename="package://dexai/meshes/vine_6th_pans.obj"/>
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="package://dexai/meshes/vine_6th_pans.obj"/>
+      </geometry>
+      <sdf resolution="8"/>
+    </collision>
+  </link>
+
+  <joint name="base_link_to_vine_6th_pans_east" type="fixed">
+    <parent link="base_link"/>
+    <child link="vine_6th_pans_east"/>
+    <origin rpy="0 0 0" xyz="0.49605 -0.33956 -0.0472"/>
+  </joint>
+
+  <!-- <link name="vine_6th_pans_west">
+    <visual>
+      <geometry>
+        <mesh filename="package://dexai/meshes/vine_6th_pans.obj"/>
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="package://dexai/meshes/vine_6th_pans.obj"/>
+      </geometry>
+      <sdf resolution="512"/>
+    </collision>
+  </link>
+
+  <joint name="base_link_to_vine_6th_pans_west" type="fixed">
+    <parent link="base_link"/>
+    <child link="vine_6th_pans_west"/>
+    <origin rpy="0 0 0" xyz="-0.49605 0.01482 -0.0472"/>
+  </joint> -->
+
+  <!-- <link name="front_pans_center"/>
+  <joint name="low_boy_3pan_with_hotel_pans_to_front_pans_center" type="fixed">
+    <parent link="low_boy_3pan_with_hotel_pans"/>
+    <child link="front_pans_center"/>
+    <origin rpy="0 0 0" xyz="0.508763 0.024999999999999994 0"/>
+  </joint>
+  <link name="back_pans_center"/>
+  <joint name="low_boy_3pan_with_hotel_pans_to_back_pans_center" type="fixed">
+    <parent link="low_boy_3pan_with_hotel_pans"/>
+    <child link="back_pans_center"/>
+    <origin rpy="0 0 3.141592653589793" xyz="-0.496763 0.024999999999999994 0"/>
+  </joint> -->
+
+</robot>
